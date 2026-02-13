@@ -1,0 +1,25 @@
+# Binaries
+/bin/
+/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go build artifacts
+*.test
+*.out
+
+# Logs and temp
+*.log
+/tmp/
+/logs/
+
+# Local config
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
