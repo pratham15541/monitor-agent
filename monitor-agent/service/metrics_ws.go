@@ -50,6 +50,8 @@ func runMetricsSession(cfg *config.Config, stop <-chan struct{}, interval time.D
 	}
 	defer conn.Close()
 
+	conn.SetReadLimit(4 * 1024 * 1024)
+
 	if stop != nil {
 		go func() {
 			<-stop

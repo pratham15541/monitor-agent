@@ -31,7 +31,10 @@ type CommandResult struct {
 	FinishedAt string `json:"finishedAt"`
 }
 
-const commandTimeout = 30 * time.Second
+const (
+	commandTimeout        = 30 * time.Second
+	maxCommandOutputBytes = 16 * 1024
+)
 
 func StartCommandLoop(cfg *config.Config, stop <-chan struct{}) {
 	go func() {
@@ -65,6 +68,8 @@ func runCommandSession(cfg *config.Config, stop <-chan struct{}) error {
 		return err
 	}
 	defer conn.Close()
+
+	conn.SetReadLimit(4 * 1024 * 1024)
 
 	if stop != nil {
 		go func() {
@@ -167,8 +172,19 @@ func executeCommand(cfg *config.Config, request CommandRequest) CommandResult {
 		result.Error = "unknown command type"
 	}
 
+	result.Output = trimOutput(result.Output)
+	result.Error = trimOutput(result.Error)
+
 	result.FinishedAt = time.Now().Format(time.RFC3339)
 	return result
+}
+
+func trimOutput(value string) string {
+	if len(value) <= maxCommandOutputBytes {
+		return value
+	}
+
+	return value[len(value)-maxCommandOutputBytes:]
 }
 
 func runShellCommand(command string) (string, string, string) {

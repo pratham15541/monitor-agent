@@ -21,6 +21,7 @@ func StartWorker(stop chan struct{}) {
 	logrus.Info("Starting command and metrics loops...")
 	go StartCommandLoop(cfg, stop)
 	go StartMetricsWebSocketLoop(cfg, stop, 2*time.Second)
+	go StartDetailedMetricsLoop(cfg, stop, 30*time.Second)
 
 	// Retry registration in background (don't block service startup)
 	go func() {
@@ -41,7 +42,7 @@ func StartWorker(stop chan struct{}) {
 				logrus.Info("Device registered:", cfg.DeviceID)
 			}
 
-			time.Sleep(30 * time.Second)
+			time.Sleep(15 * time.Second)
 		}
 	}()
 

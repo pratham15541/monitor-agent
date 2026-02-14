@@ -39,6 +39,7 @@ func runAgent() {
 	stop := make(chan struct{})
 	service.StartCommandLoop(cfg, stop)
 	service.StartMetricsWebSocketLoop(cfg, stop, 5*time.Second)
+	service.StartDetailedMetricsLoop(cfg, stop, 30*time.Second)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)

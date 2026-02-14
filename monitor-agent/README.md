@@ -1,26 +1,20 @@
 # Monitor Agent CLI
 
-Lightweight agent that registers a device and streams metrics to the backend.
+Lightweight agent that registers a device, streams live metrics, collects
+detailed snapshots, and executes remote commands.
+
+## Features
+
+- Auto registration using company API token
+- Live metrics stream (CPU, memory, disk, network) over STOMP/WebSocket
+- Detailed snapshots: processes, connections, memory, services, logs
+- Remote commands: shell, service control, diagnostics
+- Runs as a background service (Windows/Linux/macOS via kardianos/service)
 
 ## Requirements
 
 - Go 1.22+
 - Backend URL and API token
-
-## Quick install (Windows, GitHub Releases)
-
-1. Download and run the installer script (PowerShell, admin required):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Token YOUR_TOKEN -Server http://127.0.0.1:8080 -RepoOwner YOUR_GITHUB_ORG -RepoName YOUR_REPO_NAME
-```
-
-2. Or download directly and run manually:
-
-```bash
-curl -L -o monitor-agent.exe https://github.com/YOUR_GITHUB_ORG/YOUR_REPO_NAME/releases/latest/download/monitor-agent-windows.exe
-monitor-agent.exe install --token YOUR_TOKEN --server http://127.0.0.1:8080
-```
 
 ## Build from source
 
@@ -28,7 +22,15 @@ monitor-agent.exe install --token YOUR_TOKEN --server http://127.0.0.1:8080
 go build -o monitor-agent ./
 ```
 
-## Run
+## Install as a Service
+
+```bash
+./monitor-agent install --token YOUR_TOKEN --server http://127.0.0.1:8080
+```
+
+This stores config, installs the service, and starts it.
+
+## Run in Foreground
 
 ```bash
 ./monitor-agent run
@@ -36,7 +38,18 @@ go build -o monitor-agent ./
 
 ## Config
 
-The agent stores settings in `~/.monitor-agent.json`:
+Default paths:
+
+- Windows: C:\ProgramData\MonitorAgent\config.json
+- Linux/macOS: ~/.monitor-agent.json
+
+Override with:
+
+```env
+MONITOR_AGENT_CONFIG=/custom/path/config.json
+```
+
+Example config:
 
 ```json
 {
@@ -48,18 +61,25 @@ The agent stores settings in `~/.monitor-agent.json`:
 
 ## Commands
 
-- `monitor-agent install --token <TOKEN> [--server <URL>]`
-- `monitor-agent set-token <TOKEN>`
-- `monitor-agent set-url <URL>`
-- `monitor-agent run`
-- `monitor-agent deregister`
-- `monitor-agent uninstall`
-- `monitor-agent uninstall --service`
+- monitor-agent install --token <TOKEN> [--server <URL>]
+- monitor-agent set-token <TOKEN>
+- monitor-agent set-url <URL>
+- monitor-agent run
+- monitor-agent deregister
+- monitor-agent uninstall
+- monitor-agent uninstall --service
+
+## Networking
+
+- POST /agent/register
+- WebSocket /ws (x-agent-token header)
+- STOMP send to /app/agent/metrics
+- POST /agent/metrics-detail
+- STOMP subscribe /topic/agent/{deviceId} and publish /app/command-result
 
 ## Notes
 
-- `install` saves token/server, installs the service, and starts it in the background.
-- `set-token` updates the token and clears `deviceId` so it re-registers on next run.
-- `set-url` updates the server URL and clears `deviceId` so it re-registers on next run.
-- `deregister` clears `deviceId` locally (no backend call).
-- `uninstall` deletes the local config; use `--service` to also stop/remove the service.
+- install saves token/server, installs the service, and starts it.
+- set-token and set-url reset deviceId so it re-registers on next run.
+- deregister clears deviceId locally (no backend call).
+- uninstall deletes local config; use --service to stop/remove the service.

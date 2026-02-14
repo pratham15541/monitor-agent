@@ -56,6 +56,11 @@ func Save(cfg *Config) error {
 	return os.WriteFile(path, data, 0644)
 }
 
+func GetLogPath() string {
+	path := getConfigPath()
+	return filepath.Join(filepath.Dir(path), "agent.log")
+}
+
 func Delete() error {
 	path := getConfigPath()
 	if _, err := os.Stat(path); os.IsNotExist(err) {
