@@ -26,13 +26,22 @@ func RegisterIfNeeded(cfg *config.Config) error {
 		fmt.Println("Register error:", err)
 		return err
 	}
-	fmt.Println("Register error:", err)
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("register failed with status %s", resp.Status)
+	}
 
-	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	var result struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("register decode failed: %w", err)
+	}
+	if result.ID == "" {
+		return fmt.Errorf("register response missing id")
+	}
 
-	cfg.DeviceID = result["id"].(string)
+	cfg.DeviceID = result.ID
 	config.Save(cfg)
 
 	fmt.Println("Registered device:", cfg.DeviceID)

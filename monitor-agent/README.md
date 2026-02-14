@@ -50,6 +50,7 @@ The agent stores settings in `~/.monitor-agent.json`:
 
 - `monitor-agent install --token <TOKEN> [--server <URL>]`
 - `monitor-agent set-token <TOKEN>`
+- `monitor-agent set-url <URL>`
 - `monitor-agent run`
 - `monitor-agent deregister`
 - `monitor-agent uninstall`
@@ -59,5 +60,6 @@ The agent stores settings in `~/.monitor-agent.json`:
 
 - `install` saves token/server, installs the service, and starts it in the background.
 - `set-token` updates the token and clears `deviceId` so it re-registers on next run.
+- `set-url` updates the server URL and clears `deviceId` so it re-registers on next run.
 - `deregister` clears `deviceId` locally (no backend call).
 - `uninstall` deletes the local config; use `--service` to also stop/remove the service.

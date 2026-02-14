@@ -8,43 +8,42 @@ import (
 )
 
 func StartWorker(stop chan struct{}) {
-
 	cfg, err := config.Load()
 	if err != nil {
 		logrus.Fatal(err)
 	}
 
-	for {
-
-		select {
-		case <-stop:
-			logrus.Info("Worker stopped")
-			return
-
-		default:
-
-			if cfg.Token == "" {
-				logrus.Warn("Token not set")
-				time.Sleep(10 * time.Second)
-				continue
-			}
-
-			err := RegisterIfNeeded(cfg)
-			if err != nil {
-				logrus.Error("Registration failed:", err)
-				time.Sleep(5 * time.Second)
-				continue
-			}
-
-			metric := CollectMetrics()
-			metric["deviceId"] = cfg.DeviceID
-
-			_, err = postJSON(cfg.ServerURL+"/agent/metrics", metric)
-			if err != nil {
-				logrus.Error("Metric send failed:", err)
-			}
-
-			time.Sleep(10 * time.Second)
-		}
+	logrus.Info("Loading config")
+	if cfg.Token == "" {
+		logrus.Fatal("Token not set. Use 'monitor-agent install' or 'set-token'")
 	}
+
+	logrus.Info("Starting command and metrics loops...")
+	go StartCommandLoop(cfg, stop)
+	go StartMetricsWebSocketLoop(cfg, stop, 2*time.Second)
+
+	// Retry registration in background (don't block service startup)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+
+			if cfg.DeviceID == "" {
+				logrus.Info("Attempting to register device...")
+				if err := RegisterIfNeeded(cfg); err != nil {
+					logrus.Warn("Registration failed, will retry:", err)
+					time.Sleep(10 * time.Second)
+					continue
+				}
+				logrus.Info("Device registered:", cfg.DeviceID)
+			}
+
+			time.Sleep(30 * time.Second)
+		}
+	}()
+
+	logrus.Info("Agent startup complete")
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 type Config struct {
@@ -13,6 +14,18 @@ type Config struct {
 }
 
 func getConfigPath() string {
+	if override := os.Getenv("MONITOR_AGENT_CONFIG"); override != "" {
+		return override
+	}
+
+	if runtime.GOOS == "windows" {
+		programData := os.Getenv("ProgramData")
+		if programData == "" {
+			programData = "C:\\ProgramData"
+		}
+		return filepath.Join(programData, "MonitorAgent", "config.json")
+	}
+
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".monitor-agent.json")
 }
@@ -36,7 +49,11 @@ func Load() (*Config, error) {
 
 func Save(cfg *Config) error {
 	data, _ := json.MarshalIndent(cfg, "", "  ")
-	return os.WriteFile(getConfigPath(), data, 0644)
+	path := getConfigPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
 }
 
 func Delete() error {

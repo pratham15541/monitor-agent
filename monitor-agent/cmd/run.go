@@ -4,6 +4,10 @@ import (
 	"fmt"
 	"monitor-agent/config"
 	"monitor-agent/service"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -32,5 +36,16 @@ func runAgent() {
 		return
 	}
 
-	service.StartMetricsLoop(cfg)
+	stop := make(chan struct{})
+	service.StartCommandLoop(cfg, stop)
+	service.StartMetricsWebSocketLoop(cfg, stop, 5*time.Second)
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	<-sigChan
+	fmt.Println("\nShutting down...")
+	close(stop)
+	time.Sleep(1 * time.Second)
+	fmt.Println("Agent stopped.")
 }

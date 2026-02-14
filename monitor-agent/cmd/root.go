@@ -25,6 +25,7 @@ func Execute() {
 func init() {
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(setTokenCmd)
+	rootCmd.AddCommand(setURLCmd)
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(uninstallCmd)
 	rootCmd.AddCommand(deregisterCmd)
