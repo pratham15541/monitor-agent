@@ -1,6 +1,7 @@
 package com.monitor.controller;
 
 import com.monitor.dto.DeviceResponse;
+import com.monitor.dto.MetricDetailResponse;
 import com.monitor.entity.Company;
 import com.monitor.service.DeviceService;
 import lombok.RequiredArgsConstructor;
@@ -21,13 +22,10 @@ public class DeviceController {
 
     @GetMapping
     public List<DeviceResponse> getDevices() {
-System.out.println("JWT FILTER EXECUTED");
         UUID companyId = (UUID) SecurityContextHolder
                 .getContext()
                 .getAuthentication()
                 .getPrincipal();
-        
-        System.out.println("Authenticated companyId: " + companyId);
 
         return deviceService.getDevices(companyId);
     }
@@ -35,6 +33,16 @@ System.out.println("JWT FILTER EXECUTED");
     @GetMapping("/{deviceId}/metrics")
     public List<Metric> getMetrics(@PathVariable UUID deviceId) {
         return deviceService.getMetrics(deviceId);
+    }
+
+    @GetMapping("/{deviceId}/metrics-detail")
+    public List<MetricDetailResponse> getDetailedMetrics(@PathVariable UUID deviceId) {
+        UUID companyId = (UUID) SecurityContextHolder
+                .getContext()
+                .getAuthentication()
+                .getPrincipal();
+
+        return deviceService.getDetailedMetrics(companyId, deviceId);
     }
 
 }

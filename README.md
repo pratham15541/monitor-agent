@@ -1,12 +1,24 @@
 # Monitor Tool
 
-A full-stack monitoring platform with real-time WebSocket streaming, device registration, and metrics collection.
+A full-stack monitoring platform with live metrics, detailed system snapshots, and remote command execution.
+
+## Features
+
+- Company signup/login with JWT auth and per-company API tokens
+- Agent registration plus device inventory (hostname, IP, OS, last seen)
+- Live metrics stream (CPU, memory, disk, network) over STOMP/WebSocket
+- Detailed snapshots for processes, connections, services, and logs
+- Remote command channel (shell, service control, diagnostics)
+- Offline detection with status broadcasts every 30 seconds
+- Basic request rate limiting at the API edge
 
 ## Architecture
 
-- **Backend**: Spring Boot 4.0 with STOMP/WebSocket, PostgreSQL, JWT auth
-- **Frontend**: Next.js 16 with React 19, TailwindCSS, ShadcnUI components
-- **Agent**: Go CLI that registers devices and streams metrics via HTTP
+- Backend: Spring Boot 4.0, PostgreSQL, JWT, STOMP/WebSocket
+- Frontend: Next.js 16, React 19, TailwindCSS, shadcn/ui
+- Agent: Go CLI + service, gopsutil-based collectors
+
+## Repository Layout
 
 ```
 monitor-tool/
@@ -17,17 +29,23 @@ monitor-tool/
 
 ## Quick Start
 
-### 1. Backend
+### 1) Backend
 
 ```bash
 cd backend
-./run.sh          # Linux/Mac
-mvn spring-boot:run  # Windows
+docker compose up --build
 ```
 
-Runs on http://localhost:8080 (requires PostgreSQL)
+Runs on http://localhost:8080
 
-### 2. Frontend
+To run without Docker:
+
+```bash
+cd backend
+mvn spring-boot:run
+```
+
+### 2) Frontend
 
 ```bash
 cd frontend
@@ -37,34 +55,26 @@ bun run dev
 
 Runs on http://localhost:3000
 
-### 3. Agent
+### 3) Agent
 
 ```bash
 cd monitor-agent
 go build -o monitor-agent ./
-./monitor-agent run
+./monitor-agent install --token YOUR_TOKEN --server http://localhost:8080
 ```
 
-Register with: `./monitor-agent install --token YOUR_TOKEN --server http://localhost:8080`
+## Configuration
 
-## Docker
+### Backend
 
-```bash
-cd backend
-docker compose up --build
+```env
+JWT_SECRET=...
+JWT_ISSUER=monitor-tool
+JWT_EXP_MINUTES=60
+CORS_ALLOWED_ORIGINS=http://localhost:3000
+RATE_LIMIT_WINDOW=60
+RATE_LIMIT_MAX=120
 ```
-
-Starts PostgreSQL + Backend on port 8080.
-
-## Key Features
-
-- **Live Metrics Streaming**: STOMP over SockJS for real-time CPU, memory, disk, network data
-- **Device Status**: Auto-detect offline devices on a 30-second schedule
-- **Multi-tenant**: Company API tokens for isolation
-- **JWT Auth**: Token-based authentication for all endpoints
-- **Responsive UI**: Tailored for desktop and tablet viewing
-
-## Environment Variables
 
 ### Frontend
 
@@ -73,23 +83,35 @@ NEXT_PUBLIC_API_BASE=http://localhost:8080
 NEXT_PUBLIC_WS_URL=http://localhost:8080/ws
 ```
 
-### Backend (Docker)
+### Agent
 
 ```env
-SPRING_PROFILES_ACTIVE=docker
-POSTGRES_DB=monitor
-POSTGRES_USER=monitor
-POSTGRES_PASSWORD=monitor
+MONITOR_AGENT_CONFIG=/custom/path/config.json
 ```
 
-See [backend/README.md](backend/README.md), [frontend/README.md](frontend/README.md), and [monitor-agent/README.md](monitor-agent/README.md) for detailed docs.
+## WebSocket Routes
 
-## Development
+- Endpoint: /ws (SockJS enabled)
+- Topics:
+  - /topic/device/{deviceId} (live metrics)
+  - /topic/device-status/{deviceId} (ONLINE/OFFLINE)
+  - /topic/command-result/{deviceId} (command results)
+  - /topic/agent/{deviceId} (commands to agent)
+- App destinations:
+  - /app/agent/metrics
+  - /app/agent/metrics-detail
+  - /app/command/{deviceId}
+  - /app/command-result
 
-- **Java**: 21+
-- **Node**: 18+ / Bun 1.0+
-- **Go**: 1.22+
+Authentication headers:
 
-## License
+- UI: Authorization: Bearer <jwt>
+- Agent: x-agent-token: <api token>
 
-See individual project files for details.
+See backend/README.md, frontend/README.md, and monitor-agent/README.md for details.
+
+## Development Requirements
+
+- Java 21+
+- Node 18+ or Bun 1.0+
+- Go 1.22+

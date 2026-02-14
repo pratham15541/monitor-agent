@@ -17,6 +17,17 @@ server:
     include-message: always
     include-binding-errors: always
 
+app:
+  jwt:
+    secret: ${JWT_SECRET:uZ9kYx7mFJm6yK3pQvT8cW2LrN5sD4eHjA1bC6xZpQ0}
+    issuer: ${JWT_ISSUER:monitor-tool}
+    expirationMinutes: ${JWT_EXP_MINUTES:60}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  rateLimit:
+    windowSeconds: ${RATE_LIMIT_WINDOW:60}
+    maxRequests: ${RATE_LIMIT_MAX:120}
+
 logging:
   level:
     root: INFO

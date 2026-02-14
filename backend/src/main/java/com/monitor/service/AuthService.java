@@ -17,7 +17,7 @@ public class AuthService {
 
     private final CompanyRepository companyRepository;
     private final JwtService jwtService;
-    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+    private final BCryptPasswordEncoder passwordEncoder;
 
     public Company register(RegisterRequest request) {
 
@@ -34,16 +34,16 @@ public class AuthService {
         return companyRepository.save(company);
     }
 
-   public String login(LoginRequest request) {
+    public String login(LoginRequest request) {
 
-    Company company = companyRepository.findByEmail(request.getEmail())
-            .orElseThrow(() -> new RuntimeException("Invalid credentials"));
+        Company company = companyRepository.findByEmail(request.getEmail())
+                .orElseThrow(() -> new RuntimeException("Invalid credentials"));
 
-    if (!passwordEncoder.matches(request.getPassword(), company.getPasswordHash())) {
-        throw new RuntimeException("Invalid credentials");
+        if (!passwordEncoder.matches(request.getPassword(), company.getPasswordHash())) {
+            throw new RuntimeException("Invalid credentials");
+        }
+
+        return jwtService.generateToken(company.getId());
     }
-
-    return jwtService.generateToken(company.getId());
-}
 
 }

@@ -28,11 +28,11 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const token = await fetchJson<string>("/auth/login", {
+      const response = await fetchJson<{ token: string }>("/auth/login", {
         method: "POST",
         body: { email, password },
       });
-      setToken(token);
+      setToken(response.token);
       router.replace("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");

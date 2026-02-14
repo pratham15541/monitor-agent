@@ -41,6 +41,10 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
             accessor.setUser(authentication);
         }
 
+        // Note: We don't enforce user presence for SEND/SUBSCRIBE/UNSUBSCRIBE
+        // because the authentication is already validated during CONNECT
+        // and the session maintains the authentication state
+
         return message;
     }
 
