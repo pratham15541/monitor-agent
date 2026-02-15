@@ -56,6 +56,27 @@ func ControlService(action string) error {
 	return service.Control(s, action)
 }
 
+func GetServiceStatus() (string, error) {
+	s, err := newService()
+	if err != nil {
+		return "unknown", err
+	}
+
+	status, err := s.Status()
+	if err != nil {
+		return "unknown", err
+	}
+
+	switch status {
+	case service.StatusRunning:
+		return "running", nil
+	case service.StatusStopped:
+		return "stopped", nil
+	default:
+		return "unknown", nil
+	}
+}
+
 func newService() (service.Service, error) {
 	svcConfig := &service.Config{
 		Name:        "MonitorAgent",

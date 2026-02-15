@@ -1,0 +1,37 @@
+name: agent-version-bump
+
+on:
+    push:
+        branches:
+            - main
+        paths:
+            - "monitor-agent/**"
+
+jobs:
+    bump:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Bump version
+              run: |
+                  bash scripts/bump_version.sh
+
+            - name: Commit version
+              run: |
+                  if git diff --quiet; then
+                    echo "No version change"
+                    exit 0
+                  fi
+                  git config user.name "github-actions"
+                  git config user.email "github-actions@github.com"
+                  git add VERSION
+                  git commit -m "chore: bump version"
+
+            - name: Push version
+              if: success()
+              run: |
+                  git push

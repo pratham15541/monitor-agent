@@ -40,15 +40,10 @@ var installCmd = &cobra.Command{
 		fmt.Println("Installing service...")
 		if err := service.ControlService("install"); err != nil {
 			fmt.Println("Service install failed:", err)
-		}
-
-		fmt.Println("Starting service...")
-		if err := service.ControlService("start"); err != nil {
-			fmt.Println("Service start failed:", err)
 			return
 		}
 
-		fmt.Println("Service installed and started.")
+		fmt.Println("Service installed. Use 'monitor-agent start' to run it.")
 	},
 }
 

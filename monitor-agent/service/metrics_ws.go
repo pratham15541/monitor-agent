@@ -9,7 +9,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func StartMetricsWebSocketLoop(cfg *config.Config, stop <-chan struct{}, interval time.Duration) {
+const (
+	metricsBatchSize    = 10
+	metricsBatchMaxWait = 5 * time.Second
+)
+
+func StartMetricsWebSocketLoop(cfg *config.Config, stop <-chan struct{}) {
 	go func() {
 		for {
 			if stop != nil {
@@ -33,7 +38,7 @@ func StartMetricsWebSocketLoop(cfg *config.Config, stop <-chan struct{}, interva
 				}
 			}
 
-			if err := runMetricsSession(cfg, stop, interval); err != nil {
+			if err := runMetricsSession(cfg, stop); err != nil {
 				logrus.Error("Metrics websocket error:", err)
 			}
 
@@ -42,7 +47,7 @@ func StartMetricsWebSocketLoop(cfg *config.Config, stop <-chan struct{}, interva
 	}()
 }
 
-func runMetricsSession(cfg *config.Config, stop <-chan struct{}, interval time.Duration) error {
+func runMetricsSession(cfg *config.Config, stop <-chan struct{}) error {
 	wsURL := toWebSocketURL(cfg.ServerURL)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
@@ -75,32 +80,72 @@ func runMetricsSession(cfg *config.Config, stop <-chan struct{}, interval time.D
 		return err
 	}
 
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	var batch []map[string]interface{}
+	lastFlush := time.Now()
 
 	for {
-		select {
-		case <-ticker.C:
-			payload := CollectMetrics()
-			payload["deviceId"] = cfg.DeviceID
-
-			body, err := json.Marshal(payload)
-			if err != nil {
-				continue
+		if stop != nil {
+			select {
+			case <-stop:
+				return nil
+			default:
 			}
+		}
 
-			if err := sendStompFrame(conn, stompFrame{
-				Command: "SEND",
-				Headers: map[string]string{
-					"destination":  "/app/agent/metrics",
-					"content-type": "application/json",
-				},
-				Body: string(body),
-			}); err != nil {
+		payload := CollectMetrics()
+		payload["deviceId"] = cfg.DeviceID
+		batch = append(batch, payload)
+
+		if len(batch) >= metricsBatchSize || time.Since(lastFlush) >= metricsBatchMaxWait {
+			if err := sendMetricsBatch(conn, batch); err != nil {
 				return err
 			}
+			batch = batch[:0]
+			lastFlush = time.Now()
+		}
+
+		interval := intervalForCpu(payload["cpuUsage"])
+		timer := time.NewTimer(interval)
+		select {
+		case <-timer.C:
 		case <-stop:
+			timer.Stop()
 			return nil
 		}
 	}
+}
+
+func intervalForCpu(cpuValue interface{}) time.Duration {
+	cpuUsage, ok := cpuValue.(float64)
+	if !ok {
+		return 5 * time.Second
+	}
+
+	if cpuUsage > 90 {
+		return 1 * time.Second
+	}
+	if cpuUsage > 70 {
+		return 2 * time.Second
+	}
+	return 5 * time.Second
+}
+
+func sendMetricsBatch(conn *websocket.Conn, batch []map[string]interface{}) error {
+	if len(batch) == 0 {
+		return nil
+	}
+
+	body, err := json.Marshal(batch)
+	if err != nil {
+		return err
+	}
+
+	return sendStompFrame(conn, stompFrame{
+		Command: "SEND",
+		Headers: map[string]string{
+			"destination":  "/app/agent/metrics-batch",
+			"content-type": "application/json",
+		},
+		Body: string(body),
+	})
 }

@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { fetchJson } from "@/lib/api";
-import { getToken, setToken } from "@/lib/auth";
+import { getToken, setCompanyProfile, setToken } from "@/lib/auth";
+import type { CompanyProfile } from "@/lib/types";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -33,6 +34,12 @@ export default function LoginPage() {
         body: { email, password },
       });
       setToken(response.token);
+      try {
+        const profile = await fetchJson<CompanyProfile>("/company/me");
+        setCompanyProfile(profile);
+      } catch {
+        // Ignore profile fetch errors; the dashboard can still load with JWT.
+      }
       router.replace("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.validation.annotation.Validated;
 
 import java.security.Principal;
+import java.util.List;
 import java.util.UUID;
 
 @Controller
@@ -40,6 +41,28 @@ public class AgentWebSocketController {
         agentService.saveMetric(request);
     }
 
+    @MessageMapping("/agent/metrics-batch")
+    public void receiveMetricsBatch(@Valid List<MetricRequest> requests, Principal principal) {
+        if (requests == null || requests.isEmpty() || requests.get(0).getDeviceId() == null) {
+            return;
+        }
+
+        UUID companyId = getCompanyId(principal);
+        UUID deviceId = requests.get(0).getDeviceId();
+        if (!allSameDevice(requests, deviceId)) {
+            return;
+        }
+
+        Device device = deviceRepository.findById(deviceId)
+                .orElseThrow(() -> new IllegalArgumentException("Device not found"));
+
+        if (!device.getCompany().getId().equals(companyId)) {
+            return;
+        }
+
+        agentService.saveMetricsBatch(requests);
+    }
+
     @MessageMapping("/agent/metrics-detail")
     public void receiveMetricDetails(@Valid MetricDetailRequest request, Principal principal) {
         if (request == null || request.getDeviceId() == null) {
@@ -57,6 +80,28 @@ public class AgentWebSocketController {
         agentService.saveMetricDetail(request);
     }
 
+    @MessageMapping("/agent/metrics-detail-batch")
+    public void receiveMetricDetailsBatch(@Valid List<MetricDetailRequest> requests, Principal principal) {
+        if (requests == null || requests.isEmpty() || requests.get(0).getDeviceId() == null) {
+            return;
+        }
+
+        UUID companyId = getCompanyId(principal);
+        UUID deviceId = requests.get(0).getDeviceId();
+        if (!allSameDeviceDetail(requests, deviceId)) {
+            return;
+        }
+
+        Device device = deviceRepository.findById(deviceId)
+                .orElseThrow(() -> new IllegalArgumentException("Device not found"));
+
+        if (!device.getCompany().getId().equals(companyId)) {
+            return;
+        }
+
+        agentService.saveMetricDetailsBatch(requests);
+    }
+
     private UUID getCompanyId(Principal principal) {
         if (principal instanceof Authentication authentication) {
             Object value = authentication.getPrincipal();
@@ -68,5 +113,23 @@ public class AgentWebSocketController {
             }
         }
         throw new IllegalArgumentException("Unauthorized");
+    }
+
+    private boolean allSameDevice(List<MetricRequest> requests, UUID deviceId) {
+        for (MetricRequest request : requests) {
+            if (request == null || request.getDeviceId() == null || !request.getDeviceId().equals(deviceId)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean allSameDeviceDetail(List<MetricDetailRequest> requests, UUID deviceId) {
+        for (MetricDetailRequest request : requests) {
+            if (request == null || request.getDeviceId() == null || !request.getDeviceId().equals(deviceId)) {
+                return false;
+            }
+        }
+        return true;
     }
 }

@@ -18,6 +18,36 @@ A full-stack monitoring platform with live metrics, detailed system snapshots, a
 - Frontend: Next.js 16, React 19, TailwindCSS, shadcn/ui
 - Agent: Go CLI + service, gopsutil-based collectors
 
+## High-Level Design
+
+```mermaid
+flowchart LR
+  subgraph Client
+    UI[Dashboard UI]
+  end
+
+  subgraph Backend
+    API[REST API]
+    WS[STOMP WebSocket]
+    Auth[JWT Auth]
+    DB[(PostgreSQL)]
+  end
+
+  subgraph Agent
+    Collectors[Collectors]
+    Runner[Agent Service]
+  end
+
+  UI -->|HTTPS JSON| API
+  UI <--> |WS /topic| WS
+  API --> Auth
+  API --> DB
+  WS --> DB
+  Runner -->|metrics, snapshots| WS
+  WS -->|commands| Runner
+  Collectors --> Runner
+```
+
 ## Repository Layout
 
 ```

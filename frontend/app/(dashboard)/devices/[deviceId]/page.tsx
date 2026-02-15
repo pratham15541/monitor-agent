@@ -108,9 +108,37 @@ export default function DeviceDetailPage() {
     }
   }
 
+  async function loadDetailedMetrics() {
+    if (!deviceId || deviceId === "undefined") {
+      return;
+    }
+
+    try {
+      const deviceDetailedMetrics = await fetchJson<MetricDetail[]>(
+        `/devices/${deviceId}/metrics-detail`,
+      );
+      setDetailedMetrics(deviceDetailedMetrics);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load details");
+    }
+  }
+
   useEffect(() => {
     void loadData();
   }, [deviceId]);
+
+  useEffect(() => {
+    if (activeTab !== "detailed") {
+      return;
+    }
+
+    void loadDetailedMetrics();
+    const interval = setInterval(() => {
+      void loadDetailedMetrics();
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [activeTab, deviceId]);
 
   useEffect(() => {
     if (!deviceId || deviceId === "undefined") {
@@ -166,6 +194,18 @@ export default function DeviceDetailPage() {
           );
         });
 
+        client.subscribe(`/topic/device-detail/${deviceId}`, (message) => {
+          if (!message.body) {
+            return;
+          }
+          try {
+            const parsed = JSON.parse(message.body) as MetricDetail;
+            setDetailedMetrics((prev) => [parsed, ...prev].slice(0, 20));
+          } catch {
+            // Ignore malformed payloads.
+          }
+        });
+
         client.subscribe(`/topic/command-result/${deviceId}`, (message) => {
           if (!message.body) return;
           try {
@@ -198,7 +238,7 @@ export default function DeviceDetailPage() {
   }, [deviceId]);
 
   function sendCommand(
-    type: "shell" | "service" | "diagnostics",
+    type: "shell" | "service" | "diagnostics" | "collect-details",
     payload = "",
   ) {
     if (!deviceId || deviceId === "undefined") {
@@ -228,6 +268,15 @@ export default function DeviceDetailPage() {
     }
   }
 
+  async function handleRefresh() {
+    if (activeTab === "detailed") {
+      sendCommand("collect-details");
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+
+    void loadData();
+  }
+
   const chartMetrics = useMemo(() => metrics.slice().reverse(), [metrics]);
   const latest = metrics[0];
 
@@ -243,6 +292,8 @@ export default function DeviceDetailPage() {
     }
   }, [detailedMetrics]);
 
+  const latestDetailedCreatedAt = detailedMetrics[0]?.createdAt ?? null;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -257,7 +308,7 @@ export default function DeviceDetailPage() {
             {device?.ipAddress ?? "Unknown IP"} • {device?.os ?? "Unknown OS"}
           </p>
         </div>
-        <Button variant="outline" onClick={loadData}>
+        <Button variant="outline" onClick={handleRefresh}>
           <RefreshCcw className="size-4" />
           Refresh metrics
         </Button>
@@ -397,6 +448,11 @@ export default function DeviceDetailPage() {
                   Start service
                 </Button>
               </div>
+              <p className="text-xs text-muted-foreground">
+                Background service note: remote commands require the agent to be
+                online. Stop/restart will disconnect the agent, and start must
+                be run locally if the service is offline.
+              </p>
 
               <div className="rounded-xl border bg-white/70 p-3 text-xs">
                 {!commandHistory.length ? (
@@ -496,6 +552,9 @@ export default function DeviceDetailPage() {
               <div className="text-xs text-muted-foreground">
                 Collected at: {latestDetailed.collectedAt} • OS:{" "}
                 {latestDetailed.os}
+                {latestDetailedCreatedAt
+                  ? ` • Received: ${formatDateTime(latestDetailedCreatedAt)}`
+                  : ""}
               </div>
 
               <ProcessListView processes={latestDetailed.processes} />

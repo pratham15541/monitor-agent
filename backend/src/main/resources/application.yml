@@ -10,6 +10,11 @@ spring:
     properties:
       hibernate:
         format_sql: true
+        jdbc:
+          batch_size: 100
+          batch_versioned_data: true
+        order_inserts: true
+        order_updates: true
 
 server:
   port: 8080
@@ -27,9 +32,6 @@ app:
   rateLimit:
     windowSeconds: ${RATE_LIMIT_WINDOW:60}
     maxRequests: ${RATE_LIMIT_MAX:120}
-
-logging:
-  level:
-    root: INFO
-    org.springframework: DEBUG
-    com.monitor: DEBUG
+  metrics:
+    retentionDays: ${METRIC_RETENTION_DAYS:30}
+    detailRetentionDays: ${METRIC_DETAIL_RETENTION_DAYS:7}

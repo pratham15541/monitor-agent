@@ -7,12 +7,21 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sync"
 	"time"
 
 	"monitor-agent/config"
 )
 
 const logMaxBytes = 16 * 1024
+
+type agentLogState struct {
+	mu       sync.Mutex
+	buffer   string
+	lastSize int64
+}
+
+var agentLogCache = &agentLogState{}
 
 func collectLogsSnapshot() map[string]interface{} {
 	return map[string]interface{}{
@@ -22,6 +31,10 @@ func collectLogsSnapshot() map[string]interface{} {
 }
 
 func readAgentLogTail(maxBytes int64) string {
+	return agentLogCache.readTail(maxBytes)
+}
+
+func (state *agentLogState) readTail(maxBytes int64) string {
 	path := config.GetLogPath()
 	file, err := os.Open(path)
 	if err != nil {
@@ -39,21 +52,55 @@ func readAgentLogTail(maxBytes int64) string {
 		return ""
 	}
 
-	start := size - maxBytes
-	if start < 0 {
-		start = 0
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	if state.lastSize > size {
+		state.lastSize = 0
+		state.buffer = ""
 	}
 
-	if _, err := file.Seek(start, io.SeekStart); err != nil {
-		return ""
+	if state.lastSize == 0 || state.buffer == "" {
+		start := size - maxBytes
+		if start < 0 {
+			start = 0
+		}
+
+		if _, err := file.Seek(start, io.SeekStart); err != nil {
+			return ""
+		}
+
+		data, err := io.ReadAll(file)
+		if err != nil {
+			return ""
+		}
+
+		state.buffer = string(data)
+		state.lastSize = size
+		return state.buffer
+	}
+
+	if size == state.lastSize {
+		return state.buffer
+	}
+
+	if _, err := file.Seek(state.lastSize, io.SeekStart); err != nil {
+		return state.buffer
 	}
 
 	data, err := io.ReadAll(file)
 	if err != nil {
-		return ""
+		return state.buffer
 	}
 
-	return string(data)
+	state.buffer += string(data)
+	state.lastSize = size
+
+	if int64(len(state.buffer)) > maxBytes {
+		state.buffer = state.buffer[len(state.buffer)-int(maxBytes):]
+	}
+
+	return state.buffer
 }
 
 func readSystemLogs(maxBytes int64) string {

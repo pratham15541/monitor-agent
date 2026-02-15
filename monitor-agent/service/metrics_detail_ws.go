@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"monitor-agent/config"
 	"net/http"
 	"time"
@@ -10,12 +11,21 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	detailBatchSize    = 1
+	detailBatchMaxWait = 30 * time.Second
+)
+
 func StartDetailedMetricsLoop(cfg *config.Config, stop <-chan struct{}, interval time.Duration) {
 	go func() {
+		var batch []map[string]interface{}
+		lastFlush := time.Now()
+
 		for {
 			if stop != nil {
 				select {
 				case <-stop:
+					_ = sendDetailedMetricsBatch(cfg, batch)
 					return
 				default:
 				}
@@ -34,35 +44,52 @@ func StartDetailedMetricsLoop(cfg *config.Config, stop <-chan struct{}, interval
 				}
 			}
 
-			sendDetailedMetrics(cfg)
+			payload := collectDetailedMetricsPayload(cfg)
+			if payload != nil {
+				batch = append(batch, payload)
+			}
+
+			if len(batch) >= detailBatchSize || time.Since(lastFlush) >= detailBatchMaxWait {
+				if err := sendDetailedMetricsBatch(cfg, batch); err != nil {
+					logrus.Error("Failed to send detailed metrics batch:", err)
+				} else {
+					batch = batch[:0]
+					lastFlush = time.Now()
+				}
+			}
 
 			select {
 			case <-time.After(interval):
 			case <-stop:
+				_ = sendDetailedMetricsBatch(cfg, batch)
 				return
 			}
 		}
 	}()
 }
 
-func sendDetailedMetrics(cfg *config.Config) {
+func collectDetailedMetricsPayload(cfg *config.Config) map[string]interface{} {
 	details := CollectDetailedMetrics()
-	payload := map[string]interface{}{
+	return map[string]interface{}{
 		"deviceId": cfg.DeviceID,
 		"details":  details,
 	}
+}
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		logrus.Error("Failed to marshal detailed metrics:", err)
-		return
+func sendDetailedMetricsBatch(cfg *config.Config, batch []map[string]interface{}) error {
+	if len(batch) == 0 {
+		return nil
 	}
 
-	url := cfg.ServerURL + "/agent/metrics-detail"
+	body, err := json.Marshal(batch)
+	if err != nil {
+		return err
+	}
+
+	url := cfg.ServerURL + "/agent/metrics-detail/batch"
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
 	if err != nil {
-		logrus.Error("Failed to create request:", err)
-		return
+		return err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -70,15 +97,14 @@ func sendDetailedMetrics(cfg *config.Config) {
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		logrus.Error("Failed to send detailed metrics:", err)
-		return
+		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logrus.Errorf("Detailed metrics POST returned %d", resp.StatusCode)
-		return
+		return fmt.Errorf("detailed metrics batch POST returned %d", resp.StatusCode)
 	}
 
-	logrus.Debug("Detailed metrics sent successfully")
+	logrus.Debug("Detailed metrics batch sent successfully")
+	return nil
 }

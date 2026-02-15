@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	appservice "github.com/kardianos/service"
 	"github.com/sirupsen/logrus"
 )
 
@@ -48,8 +49,18 @@ func StartCommandLoop(cfg *config.Config, stop <-chan struct{}) {
 			}
 
 			if cfg.ServerURL == "" || cfg.Token == "" || cfg.DeviceID == "" {
-				time.Sleep(5 * time.Second)
-				continue
+				if cfg.ServerURL == "" || cfg.Token == "" {
+					time.Sleep(5 * time.Second)
+					continue
+				}
+
+				if cfg.DeviceID == "" {
+					if err := RegisterIfNeeded(cfg); err != nil {
+						logrus.Error("Registration failed:", err)
+						time.Sleep(5 * time.Second)
+						continue
+					}
+				}
 			}
 
 			if err := runCommandSession(cfg, stop); err != nil {
@@ -68,6 +79,11 @@ func runCommandSession(cfg *config.Config, stop <-chan struct{}) error {
 		return err
 	}
 	defer conn.Close()
+
+	logrus.WithFields(logrus.Fields{
+		"deviceId": cfg.DeviceID,
+		"wsUrl":    wsURL,
+	}).Info("Command websocket connected")
 
 	conn.SetReadLimit(4 * 1024 * 1024)
 
@@ -104,6 +120,11 @@ func runCommandSession(cfg *config.Config, stop <-chan struct{}) error {
 	}); err != nil {
 		return err
 	}
+
+	logrus.WithFields(logrus.Fields{
+		"deviceId": cfg.DeviceID,
+		"topic":    "/topic/agent/" + cfg.DeviceID,
+	}).Info("Command websocket subscribed")
 
 	for {
 		_, payload, err := conn.ReadMessage()
@@ -160,13 +181,22 @@ func executeCommand(cfg *config.Config, request CommandRequest) CommandResult {
 		result.Output = output
 		result.Error = errText
 		result.Status = status
+		logCommandResult(request, status, errText, output)
 	case "service":
 		output, errText, status := runServiceAction(request.Payload)
 		result.Output = output
 		result.Error = errText
 		result.Status = status
+		logCommandResult(request, status, errText, output)
 	case "diagnostics":
 		result.Output = buildDiagnostics(cfg)
+	case "collect-details":
+		if err := sendDetailedMetricsNow(cfg); err != nil {
+			result.Status = "error"
+			result.Error = err.Error()
+		} else {
+			result.Output = "detailed metrics collected"
+		}
 	default:
 		result.Status = "error"
 		result.Error = "unknown command type"
@@ -220,6 +250,16 @@ func runServiceAction(action string) (string, string, string) {
 		return "", "empty service action", "error"
 	}
 
+	if !appservice.Interactive() {
+		switch action {
+		case "start":
+			return "service already running", "", "ok"
+		case "stop", "restart":
+			scheduleServiceAction(action)
+			return "service action scheduled", "", "ok"
+		}
+	}
+
 	switch action {
 	case "start", "stop", "restart":
 		if action == "restart" {
@@ -241,6 +281,41 @@ func runServiceAction(action string) (string, string, string) {
 	}
 }
 
+func scheduleServiceAction(action string) {
+	go func() {
+		time.Sleep(800 * time.Millisecond)
+		if err := ControlService(action); err != nil {
+			logrus.Warn("Scheduled service action failed:", err)
+		}
+	}()
+}
+
+func logCommandResult(request CommandRequest, status, errText, output string) {
+	snippet := trimLogSnippet(output)
+	if snippet == "" {
+		snippet = trimLogSnippet(errText)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"commandType": request.Type,
+		"commandId":   request.CommandID,
+		"status":      status,
+		"payload":     trimLogSnippet(request.Payload),
+		"snippet":     snippet,
+	}).Info("Remote command executed")
+}
+
+func trimLogSnippet(value string) string {
+	const maxLen = 400
+	if value == "" {
+		return ""
+	}
+	if len(value) <= maxLen {
+		return value
+	}
+	return value[:maxLen]
+}
+
 func buildDiagnostics(cfg *config.Config) string {
 	metrics := CollectMetrics()
 	payload := map[string]interface{}{
@@ -257,4 +332,13 @@ func buildDiagnostics(cfg *config.Config) string {
 		return ""
 	}
 	return string(data)
+}
+
+func sendDetailedMetricsNow(cfg *config.Config) error {
+	payload := collectDetailedMetricsPayload(cfg)
+	if payload == nil {
+		return nil
+	}
+
+	return sendDetailedMetricsBatch(cfg, []map[string]interface{}{payload})
 }

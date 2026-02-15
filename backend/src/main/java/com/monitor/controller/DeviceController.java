@@ -2,7 +2,6 @@ package com.monitor.controller;
 
 import com.monitor.dto.DeviceResponse;
 import com.monitor.dto.MetricDetailResponse;
-import com.monitor.entity.Company;
 import com.monitor.service.DeviceService;
 import lombok.RequiredArgsConstructor;
 import com.monitor.entity.Metric;

@@ -30,6 +30,10 @@ func getConfigPath() string {
 	return filepath.Join(home, ".monitor-agent.json")
 }
 
+func ConfigPath() string {
+	return getConfigPath()
+}
+
 func Load() (*Config, error) {
 	path := getConfigPath()
 

@@ -20,7 +20,7 @@ func StartWorker(stop chan struct{}) {
 
 	logrus.Info("Starting command and metrics loops...")
 	go StartCommandLoop(cfg, stop)
-	go StartMetricsWebSocketLoop(cfg, stop, 2*time.Second)
+	go StartMetricsWebSocketLoop(cfg, stop)
 	go StartDetailedMetricsLoop(cfg, stop, 30*time.Second)
 
 	// Retry registration in background (don't block service startup)
@@ -43,6 +43,22 @@ func StartWorker(stop chan struct{}) {
 			}
 
 			time.Sleep(15 * time.Second)
+		}
+	}()
+
+	go func() {
+		ticker := time.NewTicker(20 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				logrus.WithFields(logrus.Fields{
+					"deviceId": cfg.DeviceID,
+					"server":   cfg.ServerURL,
+				}).Info("Agent heartbeat")
+			}
 		}
 	}()
 

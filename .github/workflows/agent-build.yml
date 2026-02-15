@@ -1,0 +1,75 @@
+name: agent-build
+
+on:
+    push:
+        paths:
+            - "monitor-agent/**"
+            - "VERSION"
+    pull_request:
+        paths:
+            - "monitor-agent/**"
+            - "VERSION"
+
+jobs:
+    build:
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - os: ubuntu-latest
+                      goos: linux
+                      goarch: amd64
+                      ext: ""
+                    - os: ubuntu-latest
+                      goos: linux
+                      goarch: arm64
+                      ext: ""
+                    - os: macos-latest
+                      goos: darwin
+                      goarch: amd64
+                      ext: ""
+                    - os: macos-latest
+                      goos: darwin
+                      goarch: arm64
+                      ext: ""
+                    - os: windows-latest
+                      goos: windows
+                      goarch: amd64
+                      ext: ".exe"
+
+        runs-on: ${{ matrix.os }}
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: "1.24.x"
+
+            - name: Build (unix)
+              if: runner.os != 'Windows'
+              working-directory: monitor-agent
+              run: |
+                  VERSION=$(cat ../VERSION)
+                  mkdir -p ../dist
+                  CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -ldflags "-X monitor-agent/cmd.Version=$VERSION" -o ../dist/monitor-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} .
+
+            - name: Build (windows)
+              if: runner.os == 'Windows'
+              working-directory: monitor-agent
+              shell: pwsh
+              run: |
+                  $version = (Get-Content ..\VERSION -Raw).Trim()
+                  New-Item -ItemType Directory -Force -Path ..\dist | Out-Null
+                  $env:CGO_ENABLED = "0"
+                  $env:GOOS = "${{ matrix.goos }}"
+                  $env:GOARCH = "${{ matrix.goarch }}"
+                  go build -ldflags "-X monitor-agent/cmd.Version=$version" -o ..\dist\monitor-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} .
+
+            - name: Upload artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: monitor-agent-${{ matrix.goos }}-${{ matrix.goarch }}
+                  path: dist/monitor-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
