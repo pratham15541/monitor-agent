@@ -22,13 +22,33 @@ detailed snapshots, and executes remote commands.
 go build -o monitor-agent ./
 ```
 
+Build with VERSION file:
+
+```bash
+./scripts/build_agent.sh
+```
+
+```powershell
+./scripts/build_agent.ps1
+```
+
+Release helper (bump version, build, commit, tag):
+
+```bash
+./scripts/release_agent.sh
+```
+
+```powershell
+./scripts/release_agent.ps1
+```
+
 ## Install as a Service
 
 ```bash
 ./monitor-agent install --token YOUR_TOKEN --server http://127.0.0.1:8080
 ```
 
-This stores config, installs the service, and starts it.
+This stores config and installs the service.
 
 ## Run in Foreground
 
@@ -65,6 +85,8 @@ Example config:
 - monitor-agent set-token <TOKEN>
 - monitor-agent set-url <URL>
 - monitor-agent run
+- monitor-agent status
+- monitor-agent version
 - monitor-agent deregister
 - monitor-agent uninstall
 - monitor-agent uninstall --service
@@ -79,7 +101,7 @@ Example config:
 
 ## Notes
 
-- install saves token/server, installs the service, and starts it.
+- install saves token/server and installs the service.
 - set-token and set-url reset deviceId so it re-registers on next run.
 - deregister clears deviceId locally (no backend call).
 - uninstall deletes local config; use --service to stop/remove the service.
