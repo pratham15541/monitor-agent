@@ -171,3 +171,16 @@ The project uses a unified version source (VERSION file) for all components. See
 - Java 21+
 - Node 18+ or Bun 1.0+
 - Go 1.22+
+
+## Documentation
+
+### Reports & PDFs
+
+- [Report 1](public/p1.pdf) | [Download](public/p1.pdf?raw=true)
+- [Report 2](public/p2.pdf) | [Download](public/p2.pdf?raw=true)
+
+## Examples
+
+![Offline-img](public/image.png)
+![example](public/image-1.png)
+
