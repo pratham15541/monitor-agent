@@ -7,10 +7,24 @@ A full-stack monitoring platform with live metrics, detailed system snapshots, a
 - Company signup/login with JWT auth and per-company API tokens
 - Agent registration plus device inventory (hostname, IP, OS, last seen)
 - Live metrics stream (CPU, memory, disk, network) over STOMP/WebSocket
-- Detailed snapshots for processes, connections, services, and logs
-- Remote command channel (shell, service control, diagnostics)
+- Batch metric ingestion over REST and STOMP
+- Detailed snapshots: processes, connections, memory, services, and logs
+- Remote command channel (shell, service control, diagnostics, collect-details)
+- Realtime device status and command result broadcasts
 - Offline detection with status broadcasts every 30 seconds
 - Basic request rate limiting at the API edge
+
+## Concurrency & Threading
+
+The backend is **multi-threaded** to handle concurrent requests and real-time operations efficiently:
+
+- **Scheduled Tasks**: Uses Spring's `@Scheduled` annotation for background operations
+  - Device status checking every 30 seconds (marks offline devices)
+  - Metrics aggregation and cleanup via cron jobs
+- **Thread-Safe Collections**: `ConcurrentHashMap` for rate limit tracking
+- **WebSocket Broadcasting**: Real-time metric streams and status updates to connected clients
+- **Spring Boot Servlet Container**: Multi-threaded request handling by default
+- **Default Thread Pool**: Elastic scheduling for concurrent task execution
 
 ## Architecture
 
@@ -125,11 +139,14 @@ MONITOR_AGENT_CONFIG=/custom/path/config.json
 - Topics:
   - /topic/device/{deviceId} (live metrics)
   - /topic/device-status/{deviceId} (ONLINE/OFFLINE)
+  - /topic/device-detail/{deviceId} (detailed snapshots)
   - /topic/command-result/{deviceId} (command results)
   - /topic/agent/{deviceId} (commands to agent)
 - App destinations:
   - /app/agent/metrics
+  - /app/agent/metrics-batch
   - /app/agent/metrics-detail
+  - /app/agent/metrics-detail-batch
   - /app/command/{deviceId}
   - /app/command-result
 
@@ -139,6 +156,15 @@ Authentication headers:
 - Agent: x-agent-token: <api token>
 
 See backend/README.md, frontend/README.md, and monitor-agent/README.md for details.
+
+## Version Management
+
+The project uses a unified version source (VERSION file) for all components. See [docs/VERSION_MANAGEMENT.md](docs/VERSION_MANAGEMENT.md) for:
+
+- How versions are managed
+- Build and release processes
+- CI/CD integration
+- Best practices
 
 ## Development Requirements
 

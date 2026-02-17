@@ -227,7 +227,9 @@ func runShellCommand(command string) (string, string, string) {
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "cmd", "/C", command)
+		// Prefer PowerShell to support ls/pwd/dir aliases in service mode.
+		cmd = exec.CommandContext(ctx, "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+			"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command)
 	} else {
 		cmd = exec.CommandContext(ctx, "sh", "-c", command)
 	}

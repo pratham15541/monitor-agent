@@ -19,45 +19,44 @@ Backend runs on http://localhost:8080 by default.
 
 ## Run with Docker
 
-```bash
+````bash
 docker compose up --build
-```
 
+Company
+
+- GET /company/me
 Starts PostgreSQL and the backend on port 8080.
 
 ## REST APIs
-
-Auth
-
 - POST /auth/register
 - POST /auth/login
 
-Devices
-
-- GET /devices
+- POST /agent/metrics/batch
+- POST /agent/metrics-detail/batch
 - GET /devices/{deviceId}/metrics
 - GET /devices/{deviceId}/metrics-detail
 
-Agent
-
 - POST /agent/register
 - POST /agent/metrics
+  - /topic/device-detail/{deviceId} (detailed snapshots)
 - POST /agent/metrics-detail
 
-## WebSocket (STOMP)
 
+  - /app/agent/metrics-batch
 - Endpoint: /ws (SockJS enabled)
+  - /app/agent/metrics-detail-batch
 - Topics:
   - /topic/device/{deviceId} (live metrics)
   - /topic/device-status/{deviceId} (ONLINE/OFFLINE)
   - /topic/command-result/{deviceId}
   - /topic/agent/{deviceId} (commands to agent)
-- App destinations:
-  - /app/agent/metrics
   - /app/agent/metrics-detail
   - /app/command/{deviceId}
   - /app/command-result
 
+## Request Protection
+
+- Basic per-IP/per-endpoint rate limiter with configurable window and max requests.
 Authentication headers:
 
 - UI: Authorization: Bearer <jwt>
@@ -79,4 +78,4 @@ JWT_EXP_MINUTES=60
 CORS_ALLOWED_ORIGINS=http://localhost:3000
 RATE_LIMIT_WINDOW=60
 RATE_LIMIT_MAX=120
-```
+````

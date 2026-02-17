@@ -7,8 +7,10 @@ detailed snapshots, and executes remote commands.
 
 - Auto registration using company API token
 - Live metrics stream (CPU, memory, disk, network) over STOMP/WebSocket
+- Adaptive sampling with batched metric payloads
 - Detailed snapshots: processes, connections, memory, services, logs
-- Remote commands: shell, service control, diagnostics
+- Remote commands: shell, service control, diagnostics, collect-details
+- Command results published back to the control plane
 - Runs as a background service (Windows/Linux/macOS via kardianos/service)
 
 ## Requirements
@@ -18,28 +20,48 @@ detailed snapshots, and executes remote commands.
 
 ## Build from source
 
+Build with correct version injection (recommended):
+
+```bash
+# Linux/macOS
+./scripts/build_agent.sh
+
+# Windows
+.\scripts\build_agent.ps1
+```
+
+Quick build (version will be "dev"):
+
 ```bash
 go build -o monitor-agent ./
 ```
 
-Build with VERSION file:
+## Release Process
+
+The project uses a unified VERSION file for version management. See [../docs/VERSION_MANAGEMENT.md](../docs/VERSION_MANAGEMENT.md) for details.
+
+To prepare a release:
 
 ```bash
-./scripts/build_agent.sh
-```
-
-```powershell
-./scripts/build_agent.ps1
-```
-
-Release helper (bump version, build, commit, tag):
-
-```bash
+# Linux/macOS
 ./scripts/release_agent.sh
+
+# Windows
+.\scripts\release_agent.ps1
 ```
 
-```powershell
-./scripts/release_agent.ps1
+This will:
+
+1. Bump the patch version in VERSION file
+2. Build the agent with injected version
+3. Commit version change
+4. Create git tag
+
+Then push:
+
+```bash
+git push origin main
+git push origin <tag>  # Triggers CI/CD release build
 ```
 
 ## Install as a Service
@@ -95,8 +117,8 @@ Example config:
 
 - POST /agent/register
 - WebSocket /ws (x-agent-token header)
-- STOMP send to /app/agent/metrics
-- POST /agent/metrics-detail
+- STOMP send to /app/agent/metrics-batch
+- POST /agent/metrics-detail/batch
 - STOMP subscribe /topic/agent/{deviceId} and publish /app/command-result
 
 ## Notes

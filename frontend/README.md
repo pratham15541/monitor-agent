@@ -7,9 +7,11 @@ device inventory, live metrics, and deep-dive system insights.
 
 - Company registration and login flows
 - Dashboard with device search, auto-refresh, and status counts
-- Device detail view with live metrics charts
-- Remote commands with result history
+- Device detail view with live metrics charts and status streaming
+- Remote commands (shell, service control, diagnostics, collect-details)
+- Command result history with status and output
 - Detailed metrics for processes, connections, services, and logs
+- Agent registration screen for quick onboarding
 - Company profile screen for API token management
 
 ## Getting Started
