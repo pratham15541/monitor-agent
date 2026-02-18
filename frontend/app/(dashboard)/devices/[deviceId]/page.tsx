@@ -56,15 +56,100 @@ type CommandResult = {
   status: string;
   output?: string;
   error?: string;
+  chunked?: boolean;
+  chunkType?: "output" | "error";
+  chunkIndex?: number;
+  chunkCount?: number;
   startedAt?: string;
   finishedAt?: string;
 };
 
 function formatOutput(text?: string) {
   if (!text) return "";
-  const limit = 2000;
-  if (text.length <= limit) return text;
-  return `${text.slice(0, limit)}...`;
+  return text;
+}
+
+type CommandChunkBuffer = {
+  outputParts: Map<number, string>;
+  errorParts: Map<number, string>;
+  outputCount?: number;
+  errorCount?: number;
+};
+
+const detailedMetricsCache = new Map<
+  string,
+  { data: MetricDetail[]; fetchedAt: number }
+>();
+
+function assembleChunks(parts: Map<number, string>, count?: number) {
+  if (!parts.size) return "";
+  const total = count ?? Math.max(...Array.from(parts.keys())) + 1;
+  const output: string[] = [];
+  for (let i = 0; i < total; i += 1) {
+    output.push(parts.get(i) ?? "");
+  }
+  return output.join("");
+}
+
+function upsertCommandResult(
+  prev: CommandResult[],
+  incoming: CommandResult,
+  buffers: Map<string, CommandChunkBuffer>,
+) {
+  if (incoming.chunked && incoming.chunkType) {
+    const buffer = buffers.get(incoming.commandId) ?? {
+      outputParts: new Map(),
+      errorParts: new Map(),
+    };
+
+    if (incoming.chunkType === "output") {
+      buffer.outputParts.set(incoming.chunkIndex ?? 0, incoming.output ?? "");
+      if (incoming.chunkCount) {
+        buffer.outputCount = incoming.chunkCount;
+      }
+    } else {
+      buffer.errorParts.set(incoming.chunkIndex ?? 0, incoming.error ?? "");
+      if (incoming.chunkCount) {
+        buffer.errorCount = incoming.chunkCount;
+      }
+    }
+
+    buffers.set(incoming.commandId, buffer);
+
+    const assembledOutput = assembleChunks(
+      buffer.outputParts,
+      buffer.outputCount,
+    );
+    const assembledError = assembleChunks(buffer.errorParts, buffer.errorCount);
+
+    const merged: CommandResult = {
+      ...incoming,
+      output: assembledOutput || undefined,
+      error: assembledError || undefined,
+      status: incoming.finishedAt ? incoming.status : "stream",
+    };
+
+    const next = prev.map((item) =>
+      item.commandId === incoming.commandId ? { ...item, ...merged } : item,
+    );
+    if (!next.some((item) => item.commandId === incoming.commandId)) {
+      next.unshift(merged);
+    }
+
+    if (incoming.finishedAt) {
+      buffers.delete(incoming.commandId);
+    }
+
+    return next.slice(0, 20);
+  }
+
+  const next = prev.map((item) =>
+    item.commandId === incoming.commandId ? { ...item, ...incoming } : item,
+  );
+  if (!next.some((item) => item.commandId === incoming.commandId)) {
+    next.unshift(incoming);
+  }
+  return next.slice(0, 20);
 }
 
 export default function DeviceDetailPage() {
@@ -83,6 +168,9 @@ export default function DeviceDetailPage() {
     "overview",
   );
   const stompRef = useRef<Client | null>(null);
+  const commandChunkBuffers = useRef<Map<string, CommandChunkBuffer>>(
+    new Map(),
+  );
 
   async function loadData() {
     setError(null);
@@ -91,16 +179,23 @@ export default function DeviceDetailPage() {
       setLoading(false);
       return;
     }
+    const cached = detailedMetricsCache.get(deviceId);
     try {
       const [deviceList, deviceMetrics, deviceDetailedMetrics] =
         await Promise.all([
           fetchJson<Device[]>("/devices"),
           fetchJson<Metric[]>(`/devices/${deviceId}/metrics`),
-          fetchJson<MetricDetail[]>(`/devices/${deviceId}/metrics-detail`),
+          cached && Date.now() - cached.fetchedAt < 10000
+            ? Promise.resolve(cached.data)
+            : fetchJson<MetricDetail[]>(`/devices/${deviceId}/metrics-detail`),
         ]);
       setDevice(deviceList.find((item) => item.id === deviceId) ?? null);
       setMetrics(deviceMetrics);
       setDetailedMetrics(deviceDetailedMetrics);
+      detailedMetricsCache.set(deviceId, {
+        data: deviceDetailedMetrics,
+        fetchedAt: Date.now(),
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load device");
     } finally {
@@ -113,11 +208,21 @@ export default function DeviceDetailPage() {
       return;
     }
 
+    const cached = detailedMetricsCache.get(deviceId);
+    if (cached && Date.now() - cached.fetchedAt < 10000) {
+      setDetailedMetrics(cached.data);
+      return;
+    }
+
     try {
       const deviceDetailedMetrics = await fetchJson<MetricDetail[]>(
         `/devices/${deviceId}/metrics-detail`,
       );
       setDetailedMetrics(deviceDetailedMetrics);
+      detailedMetricsCache.set(deviceId, {
+        data: deviceDetailedMetrics,
+        fetchedAt: Date.now(),
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load details");
     }
@@ -210,7 +315,9 @@ export default function DeviceDetailPage() {
           if (!message.body) return;
           try {
             const parsed = JSON.parse(message.body) as CommandResult;
-            setCommandHistory((prev) => [parsed, ...prev].slice(0, 20));
+            setCommandHistory((prev) =>
+              upsertCommandResult(prev, parsed, commandChunkBuffers.current),
+            );
           } catch {
             // Ignore malformed payloads.
           }
@@ -291,6 +398,11 @@ export default function DeviceDetailPage() {
       return null;
     }
   }, [detailedMetrics]);
+
+  const processIndex = useMemo(() => {
+    if (!latestDetailed?.processes) return new Map();
+    return new Map(latestDetailed.processes.map((proc) => [proc.pid, proc]));
+  }, [latestDetailed]);
 
   const latestDetailedCreatedAt = detailedMetrics[0]?.createdAt ?? null;
 
@@ -476,7 +588,9 @@ export default function DeviceDetailPage() {
                                 ? "text-emerald-600"
                                 : item.status === "timeout"
                                   ? "text-amber-600"
-                                  : "text-rose-600"
+                                  : item.status === "stream"
+                                    ? "text-sky-600"
+                                    : "text-rose-600"
                             }
                           >
                             {item.status}
@@ -558,7 +672,10 @@ export default function DeviceDetailPage() {
               </div>
 
               <ProcessListView processes={latestDetailed.processes} />
-              <ConnectionsView connections={latestDetailed.connections} />
+              <ConnectionsView
+                connections={latestDetailed.connections}
+                processIndex={processIndex}
+              />
               <ServicesView services={latestDetailed.services} />
               <LogsView logs={latestDetailed.logs} />
             </div>

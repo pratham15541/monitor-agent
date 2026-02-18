@@ -18,6 +18,10 @@ public class CommandResult {
     private String status;
     private String output;
     private String error;
+    private Boolean chunked;
+    private String chunkType;
+    private Integer chunkIndex;
+    private Integer chunkCount;
     private String startedAt;
     private String finishedAt;
 }

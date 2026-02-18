@@ -16,17 +16,22 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class DeviceService {
 
+        private static final long DETAIL_CACHE_TTL_MS = 5000;
+
         private final CompanyRepository companyRepository;
         private final DeviceRepository deviceRepository;
         private final MetricRepository metricRepository;
         private final MetricDetailRepository metricDetailRepository;
+        private final Map<UUID, CachedDetails> detailedMetricsCache = new ConcurrentHashMap<>();
 
         public List<DeviceResponse> getDevices(UUID companyId) {
 
@@ -66,15 +71,34 @@ public class DeviceService {
                         throw new RuntimeException("Unauthorized");
                 }
 
+                CachedDetails cached = detailedMetricsCache.get(deviceId);
+                long now = System.currentTimeMillis();
+                if (cached != null && now - cached.cachedAt < DETAIL_CACHE_TTL_MS) {
+                        return cached.data;
+                }
+
                 List<MetricDetail> details = metricDetailRepository
                                 .findTop20ByDeviceOrderByCreatedAtDesc(device);
 
-                return details.stream()
+                List<MetricDetailResponse> response = details.stream()
                                 .map(detail -> MetricDetailResponse.builder()
                                                 .id(detail.getId())
                                                 .detailsJson(detail.getDetailsJson())
                                                 .createdAt(detail.getCreatedAt())
                                                 .build())
                                 .collect(Collectors.toList());
+
+                detailedMetricsCache.put(deviceId, new CachedDetails(now, response));
+                return response;
+        }
+
+        private static final class CachedDetails {
+                private final long cachedAt;
+                private final List<MetricDetailResponse> data;
+
+                private CachedDetails(long cachedAt, List<MetricDetailResponse> data) {
+                        this.cachedAt = cachedAt;
+                        this.data = data;
+                }
         }
 }

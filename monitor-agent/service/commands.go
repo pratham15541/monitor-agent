@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"monitor-agent/config"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -28,13 +29,21 @@ type CommandResult struct {
 	Status     string `json:"status"`
 	Output     string `json:"output"`
 	Error      string `json:"error"`
+	Chunked    bool   `json:"chunked"`
+	ChunkType  string `json:"chunkType"`
+	ChunkIndex int    `json:"chunkIndex"`
+	ChunkCount int    `json:"chunkCount"`
 	StartedAt  string `json:"startedAt"`
 	FinishedAt string `json:"finishedAt"`
 }
 
 const (
-	commandTimeout        = 30 * time.Second
-	maxCommandOutputBytes = 16 * 1024
+	commandTimeout       = 30 * time.Second
+	maxCommandChunkBytes = 12 * 1024
+)
+
+var blockedCommandPattern = regexp.MustCompile(
+	`(?i)\b(rm|remove-item|removeitem|del|erase|rmdir|rd|format)\b`,
 )
 
 func StartCommandLoop(cfg *config.Config, stop <-chan struct{}) {
@@ -147,25 +156,27 @@ func runCommandSession(cfg *config.Config, stop <-chan struct{}) error {
 				continue
 			}
 
-			result := executeCommand(cfg, request)
-			body, err := json.Marshal(result)
-			if err != nil {
-				continue
-			}
+			results := executeCommand(cfg, request)
+			for _, result := range results {
+				body, err := json.Marshal(result)
+				if err != nil {
+					continue
+				}
 
-			_ = sendStompFrame(conn, stompFrame{
-				Command: "SEND",
-				Headers: map[string]string{
-					"destination":  "/app/command-result",
-					"content-type": "application/json",
-				},
-				Body: string(body),
-			})
+				_ = sendStompFrame(conn, stompFrame{
+					Command: "SEND",
+					Headers: map[string]string{
+						"destination":  "/app/command-result",
+						"content-type": "application/json",
+					},
+					Body: string(body),
+				})
+			}
 		}
 	}
 }
 
-func executeCommand(cfg *config.Config, request CommandRequest) CommandResult {
+func executeCommand(cfg *config.Config, request CommandRequest) []CommandResult {
 	started := time.Now()
 	result := CommandResult{
 		DeviceID:  cfg.DeviceID,
@@ -202,24 +213,17 @@ func executeCommand(cfg *config.Config, request CommandRequest) CommandResult {
 		result.Error = "unknown command type"
 	}
 
-	result.Output = trimOutput(result.Output)
-	result.Error = trimOutput(result.Error)
-
-	result.FinishedAt = time.Now().Format(time.RFC3339)
-	return result
-}
-
-func trimOutput(value string) string {
-	if len(value) <= maxCommandOutputBytes {
-		return value
-	}
-
-	return value[len(value)-maxCommandOutputBytes:]
+	finishedAt := time.Now().Format(time.RFC3339)
+	return chunkCommandResult(result, finishedAt)
 }
 
 func runShellCommand(command string) (string, string, string) {
 	if strings.TrimSpace(command) == "" {
 		return "", "empty command", "error"
+	}
+
+	if blockedCommandPattern.MatchString(command) {
+		return "", "blocked command detected", "error"
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
@@ -228,22 +232,102 @@ func runShellCommand(command string) (string, string, string) {
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
 		// Prefer PowerShell to support ls/pwd/dir aliases in service mode.
+		// Force UTF-8 output to avoid null-padded strings in service context.
+		psCommand :=
+			"$OutputEncoding=[System.Text.UTF8Encoding]::new();" +
+				"[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new();" +
+				command
 		cmd = exec.CommandContext(ctx, "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-			"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command)
+			"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", psCommand)
 	} else {
 		cmd = exec.CommandContext(ctx, "sh", "-c", command)
 	}
 
 	output, err := cmd.CombinedOutput()
+	cleanOutput := sanitizeOutput(string(output))
 	if ctx.Err() == context.DeadlineExceeded {
-		return string(output), "command timed out", "timeout"
+		return cleanOutput, "command timed out", "timeout"
 	}
 
 	if err != nil {
-		return string(output), err.Error(), "error"
+		return cleanOutput, err.Error(), "error"
 	}
 
-	return string(output), "", "ok"
+	return cleanOutput, "", "ok"
+}
+
+func sanitizeOutput(value string) string {
+	return strings.ReplaceAll(value, "\x00", "")
+}
+
+func chunkCommandResult(result CommandResult, finishedAt string) []CommandResult {
+	outputChunks := splitChunks(result.Output, maxCommandChunkBytes)
+	errorChunks := splitChunks(result.Error, maxCommandChunkBytes)
+
+	if len(outputChunks) <= 1 && len(errorChunks) <= 1 {
+		result.FinishedAt = finishedAt
+		return []CommandResult{result}
+	}
+
+	results := make([]CommandResult, 0, len(outputChunks)+len(errorChunks))
+	if len(outputChunks) > 0 {
+		for i, chunk := range outputChunks {
+			item := result
+			item.Output = chunk
+			item.Error = ""
+			item.Chunked = true
+			item.ChunkType = "output"
+			item.ChunkIndex = i
+			item.ChunkCount = len(outputChunks)
+			if i == len(outputChunks)-1 && len(errorChunks) == 0 {
+				item.FinishedAt = finishedAt
+				item.Status = result.Status
+			} else {
+				item.Status = "stream"
+			}
+			results = append(results, item)
+		}
+	}
+
+	if len(errorChunks) > 0 {
+		for i, chunk := range errorChunks {
+			item := result
+			item.Output = ""
+			item.Error = chunk
+			item.Chunked = true
+			item.ChunkType = "error"
+			item.ChunkIndex = i
+			item.ChunkCount = len(errorChunks)
+			if i == len(errorChunks)-1 {
+				item.FinishedAt = finishedAt
+				item.Status = result.Status
+			} else {
+				item.Status = "stream"
+			}
+			results = append(results, item)
+		}
+	}
+
+	return results
+}
+
+func splitChunks(value string, size int) []string {
+	if value == "" {
+		return nil
+	}
+	if size <= 0 || len(value) <= size {
+		return []string{value}
+	}
+
+	chunks := make([]string, 0, (len(value)+size-1)/size)
+	for start := 0; start < len(value); start += size {
+		end := start + size
+		if end > len(value) {
+			end = len(value)
+		}
+		chunks = append(chunks, value[start:end])
+	}
+	return chunks
 }
 
 func runServiceAction(action string) (string, string, string) {

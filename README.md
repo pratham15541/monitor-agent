@@ -1,93 +1,140 @@
 # Monitor Tool
 
-A full-stack monitoring platform with live metrics, detailed system snapshots, and remote command execution.
+Monitor Tool is a full-stack monitoring platform with live metrics, detailed system snapshots, and remote command execution. It combines a Spring Boot backend, a Next.js dashboard, and a Go agent that runs on monitored machines.
 
-## Features
+## What you get
 
-- Company signup/login with JWT auth and per-company API tokens
-- Agent registration plus device inventory (hostname, IP, OS, last seen)
-- Live metrics stream (CPU, memory, disk, network) over STOMP/WebSocket
-- Batch metric ingestion over REST and STOMP
-- Detailed snapshots: processes, connections, memory, services, and logs
-- Remote command channel (shell, service control, diagnostics, collect-details)
-- Realtime device status and command result broadcasts
-- Offline detection with status broadcasts every 30 seconds
-- Basic request rate limiting at the API edge
+- Company accounts with JWT auth and per-company API tokens.
+- Device inventory with status tracking and last-seen timestamps.
+- Live metrics stream (CPU, memory, disk, network) over STOMP/WebSocket.
+- Batch metrics ingestion via REST and STOMP.
+- Detailed snapshots (processes, connections, memory, services, logs).
+- Remote commands (shell, service control, diagnostics, collect-details).
+- Command results streamed back to the dashboard.
+- Offline detection and status broadcasts every 30 seconds.
+- Basic per-IP/per-path request rate limiting.
 
-## Concurrency & Threading
+## Repository layout
 
-The backend is **multi-threaded** to handle concurrent requests and real-time operations efficiently:
+- [backend/](backend/) Spring Boot REST + STOMP WebSocket API
+- [frontend/](frontend/) Next.js dashboard
+- [monitor-agent/](monitor-agent/) Go agent service and CLI
+- [docs/](docs/) Project documentation
 
-- **Scheduled Tasks**: Uses Spring's `@Scheduled` annotation for background operations
-  - Device status checking every 30 seconds (marks offline devices)
-  - Metrics aggregation and cleanup via cron jobs
-- **Thread-Safe Collections**: `ConcurrentHashMap` for rate limit tracking
-- **WebSocket Broadcasting**: Real-time metric streams and status updates to connected clients
-- **Spring Boot Servlet Container**: Multi-threaded request handling by default
-- **Default Thread Pool**: Elastic scheduling for concurrent task execution
-
-## Architecture
-
-- Backend: Spring Boot 4.0, PostgreSQL, JWT, STOMP/WebSocket
-- Frontend: Next.js 16, React 19, TailwindCSS, shadcn/ui
-- Agent: Go CLI + service, gopsutil-based collectors
-
-## High-Level Design
+## Architecture overview
 
 ```mermaid
 flowchart LR
-  subgraph Client
-    UI[Dashboard UI]
+  subgraph UI[Dashboard UI]
+    Browser[Browser Client]
   end
 
-  subgraph Backend
-    API[REST API]
-    WS[STOMP WebSocket]
-    Auth[JWT Auth]
-    DB[(PostgreSQL)]
+  subgraph Backend[Spring Boot Backend]
+    REST[REST API]
+    WS[STOMP WebSocket /ws]
+    Auth[JWT + Agent Token Auth]
+    Rate[Rate Limiter]
+    DB[(PostgreSQL / TimescaleDB)]
   end
 
-  subgraph Agent
-    Collectors[Collectors]
-    Runner[Agent Service]
+  subgraph Agent[Monitor Agent]
+    Collector[System Collectors]
+    Cmd[Command Runner]
+    Service[Background Service]
   end
 
-  UI -->|HTTPS JSON| API
-  UI <--> |WS /topic| WS
-  API --> Auth
-  API --> DB
+  Browser -->|HTTPS JSON| REST
+  Browser <--> |STOMP| WS
+  REST --> Auth
+  REST --> Rate
+  REST --> DB
+  WS --> Auth
   WS --> DB
-  Runner -->|metrics, snapshots| WS
-  WS -->|commands| Runner
-  Collectors --> Runner
+
+  Collector --> Service
+  Cmd --> Service
+  Service -->|metrics, detail batches| REST
+  Service <--> |STOMP /topic| WS
 ```
 
-## Repository Layout
+## Key flows
 
-```
-monitor-tool/
-├── backend/        # Spring Boot REST + STOMP WebSocket API
-├── frontend/       # Next.js dashboard
-└── monitor-agent/  # Go agent for metric collection
+```mermaid
+sequenceDiagram
+  autonumber
+  participant UI as Dashboard UI
+  participant API as Backend REST
+  participant WS as Backend WS
+  participant Agent as Monitor Agent
+
+  UI->>API: POST /auth/login
+  API-->>UI: JWT
+  Agent->>API: POST /agent/register (api token)
+  API-->>Agent: deviceId
+  Agent->>WS: CONNECT (x-agent-token)
+  UI->>WS: CONNECT (Authorization: Bearer JWT)
+  Agent->>WS: SEND /app/agent/metrics-batch
+  WS-->>UI: /topic/device/{deviceId}
+  UI->>WS: SEND /app/command/{deviceId}
+  WS-->>Agent: /topic/agent/{deviceId}
+  Agent->>WS: SEND /app/command-result
+  WS-->>UI: /topic/command-result/{deviceId}
 ```
 
-## Quick Start
+## Data model (current)
+
+| Entity       | Key fields                                                                        | Notes                          |
+| ------------ | --------------------------------------------------------------------------------- | ------------------------------ |
+| Company      | id, name, email, passwordHash, apiToken, createdAt                                | Auth and scoping boundary.     |
+| Device       | id, hostname, ipAddress, os, status, lastSeenAt, createdAt, company_id            | Updated on every metric batch. |
+| Metric       | id, device_id, cpuUsage, memoryUsage, diskUsage, networkIn, networkOut, createdAt | Latest 50 shown in UI.         |
+| MetricDetail | id, device_id, detailsJson, createdAt                                             | Latest 20 shown in UI.         |
+
+## REST + WebSocket surface (summary)
+
+REST endpoints (all JSON):
+
+- POST `/auth/register`
+- POST `/auth/login`
+- GET `/company/me`
+- GET `/devices`
+- GET `/devices/{deviceId}/metrics`
+- GET `/devices/{deviceId}/metrics-detail`
+- POST `/agent/register`
+- POST `/agent/metrics`
+- POST `/agent/metrics/batch`
+- POST `/agent/metrics-detail`
+- POST `/agent/metrics-detail/batch`
+
+WebSocket (STOMP) endpoint: `/ws`
+
+- Topics: `/topic/device/{deviceId}`, `/topic/device-status/{deviceId}`, `/topic/device-detail/{deviceId}`, `/topic/command-result/{deviceId}`, `/topic/agent/{deviceId}`
+- App destinations: `/app/agent/metrics`, `/app/agent/metrics-batch`, `/app/agent/metrics-detail`, `/app/agent/metrics-detail-batch`, `/app/command/{deviceId}`, `/app/command-result`
+
+Authentication:
+
+- UI uses `Authorization: Bearer <jwt>` for REST and STOMP CONNECT.
+- Agent uses `x-agent-token: <api token>` for REST and STOMP CONNECT.
+
+## Quick start
 
 ### 1) Backend
+
+Docker (recommended for TimescaleDB):
 
 ```bash
 cd backend
 docker compose up --build
 ```
 
-Runs on http://localhost:8080
-
-To run without Docker:
+Local JVM:
 
 ```bash
 cd backend
 mvn spring-boot:run
 ```
+
+Windows shortcut script: see [backend/run.ps1](backend/run.ps1)
 
 ### 2) Frontend
 
@@ -97,19 +144,18 @@ bun install
 bun run dev
 ```
 
-Runs on http://localhost:3000
-
 ### 3) Agent
 
 ```bash
 cd monitor-agent
 go build -o monitor-agent ./
 ./monitor-agent install --token YOUR_TOKEN --server http://localhost:8080
+./monitor-agent start
 ```
 
 ## Configuration
 
-### Backend
+Backend environment variables (see [backend/src/main/resources/application.yml](backend/src/main/resources/application.yml)):
 
 ```env
 JWT_SECRET=...
@@ -118,69 +164,40 @@ JWT_EXP_MINUTES=60
 CORS_ALLOWED_ORIGINS=http://localhost:3000
 RATE_LIMIT_WINDOW=60
 RATE_LIMIT_MAX=120
+METRIC_RETENTION_DAYS=30
+METRIC_DETAIL_RETENTION_DAYS=7
 ```
 
-### Frontend
+Frontend environment variables:
 
 ```env
 NEXT_PUBLIC_API_BASE=http://localhost:8080
 NEXT_PUBLIC_WS_URL=http://localhost:8080/ws
 ```
 
-### Agent
+Agent environment variables:
 
 ```env
 MONITOR_AGENT_CONFIG=/custom/path/config.json
 ```
 
-## WebSocket Routes
+## Retention and background jobs
 
-- Endpoint: /ws (SockJS enabled)
-- Topics:
-  - /topic/device/{deviceId} (live metrics)
-  - /topic/device-status/{deviceId} (ONLINE/OFFLINE)
-  - /topic/device-detail/{deviceId} (detailed snapshots)
-  - /topic/command-result/{deviceId} (command results)
-  - /topic/agent/{deviceId} (commands to agent)
-- App destinations:
-  - /app/agent/metrics
-  - /app/agent/metrics-batch
-  - /app/agent/metrics-detail
-  - /app/agent/metrics-detail-batch
-  - /app/command/{deviceId}
-  - /app/command-result
-
-Authentication headers:
-
-- UI: Authorization: Bearer <jwt>
-- Agent: x-agent-token: <api token>
-
-See backend/README.md, frontend/README.md, and monitor-agent/README.md for details.
-
-## Version Management
-
-The project uses a unified version source (VERSION file) for all components. See [docs/VERSION_MANAGEMENT.md](docs/VERSION_MANAGEMENT.md) for:
-
-- How versions are managed
-- Build and release processes
-- CI/CD integration
-- Best practices
-
-## Development Requirements
-
-- Java 21+
-- Node 18+ or Bun 1.0+
-- Go 1.22+
+- Offline detection runs every 30 seconds.
+- TimescaleDB hypertables and retention policies are enabled when the extension is available; otherwise a daily cleanup job runs at 02:30.
+- Default retention: metrics 30 days, detailed metrics 7 days.
 
 ## Documentation
 
-### Reports & PDFs
+- [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md)
+- [docs/SECURITY.md](docs/SECURITY.md)
+- [docs/VERSION_MANAGEMENT.md](docs/VERSION_MANAGEMENT.md)
 
-- [Report 1](public/p1.pdf) | [Download](public/p1.pdf?raw=true)
-- [Report 2](public/p2.pdf) | [Download](public/p2.pdf?raw=true)
+## Reports
 
-## Examples
+- [public/p1.pdf](public/p1.pdf)
+- [public/p2.pdf](public/p2.pdf)
+
+## Screenshots
 
 ![Offline-img](public/image.png)
-![example](public/image-1.png)
-

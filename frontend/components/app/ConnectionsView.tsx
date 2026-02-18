@@ -11,10 +11,11 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ConnectionInfo } from "@/lib/types";
+import type { ConnectionInfo, ProcessInfo } from "@/lib/types";
 
 type Props = {
   connections: ConnectionInfo[];
+  processIndex?: Map<number, ProcessInfo>;
 };
 
 function formatAddress(ip: string, port: number) {
@@ -24,7 +25,7 @@ function formatAddress(ip: string, port: number) {
   return `${ip}:${port}`;
 }
 
-export function ConnectionsView({ connections }: Props) {
+export function ConnectionsView({ connections, processIndex }: Props) {
   const [search, setSearch] = useState("");
 
   const filtered = useMemo(() => {
@@ -32,6 +33,9 @@ export function ConnectionsView({ connections }: Props) {
     if (!needle) return connections;
 
     return connections.filter((conn) => {
+      const proc = processIndex?.get(conn.pid);
+      const procText =
+        `${proc?.name ?? ""} ${proc?.exe ?? ""} ${proc?.cmdline ?? ""}`.toLowerCase();
       const localAddr = formatAddress(
         conn.local.ip,
         conn.local.port,
@@ -43,6 +47,7 @@ export function ConnectionsView({ connections }: Props) {
       return (
         localAddr.includes(needle) ||
         remoteAddr.includes(needle) ||
+        procText.includes(needle) ||
         conn.status.toLowerCase().includes(needle) ||
         conn.pid.toString().includes(needle)
       );
@@ -82,6 +87,7 @@ export function ConnectionsView({ connections }: Props) {
                   <TableHeader>
                     <TableRow>
                       <TableHead>PID</TableHead>
+                      <TableHead>Process</TableHead>
                       <TableHead>Local</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Status</TableHead>
@@ -92,6 +98,18 @@ export function ConnectionsView({ connections }: Props) {
                       <TableRow key={idx}>
                         <TableCell className="font-mono text-xs">
                           {conn.pid}
+                        </TableCell>
+                        <TableCell
+                          className="max-w-[220px] truncate text-xs"
+                          title={
+                            processIndex?.get(conn.pid)?.name ||
+                            processIndex?.get(conn.pid)?.exe ||
+                            ""
+                          }
+                        >
+                          {processIndex?.get(conn.pid)?.name ||
+                            processIndex?.get(conn.pid)?.exe ||
+                            "—"}
                         </TableCell>
                         <TableCell className="font-mono text-xs">
                           {formatAddress(conn.local.ip, conn.local.port)}
@@ -124,6 +142,7 @@ export function ConnectionsView({ connections }: Props) {
                   <TableHeader>
                     <TableRow>
                       <TableHead>PID</TableHead>
+                      <TableHead>Process</TableHead>
                       <TableHead>Local</TableHead>
                       <TableHead>Remote</TableHead>
                       <TableHead>Type</TableHead>
@@ -134,6 +153,18 @@ export function ConnectionsView({ connections }: Props) {
                       <TableRow key={idx}>
                         <TableCell className="font-mono text-xs">
                           {conn.pid}
+                        </TableCell>
+                        <TableCell
+                          className="max-w-[220px] truncate text-xs"
+                          title={
+                            processIndex?.get(conn.pid)?.name ||
+                            processIndex?.get(conn.pid)?.exe ||
+                            ""
+                          }
+                        >
+                          {processIndex?.get(conn.pid)?.name ||
+                            processIndex?.get(conn.pid)?.exe ||
+                            "—"}
                         </TableCell>
                         <TableCell className="font-mono text-xs">
                           {formatAddress(conn.local.ip, conn.local.port)}
@@ -166,6 +197,7 @@ export function ConnectionsView({ connections }: Props) {
                   <TableHeader>
                     <TableRow>
                       <TableHead>PID</TableHead>
+                      <TableHead>Process</TableHead>
                       <TableHead>Local</TableHead>
                       <TableHead>Remote</TableHead>
                       <TableHead>Status</TableHead>
@@ -176,6 +208,18 @@ export function ConnectionsView({ connections }: Props) {
                       <TableRow key={idx}>
                         <TableCell className="font-mono text-xs">
                           {conn.pid}
+                        </TableCell>
+                        <TableCell
+                          className="max-w-[220px] truncate text-xs"
+                          title={
+                            processIndex?.get(conn.pid)?.name ||
+                            processIndex?.get(conn.pid)?.exe ||
+                            ""
+                          }
+                        >
+                          {processIndex?.get(conn.pid)?.name ||
+                            processIndex?.get(conn.pid)?.exe ||
+                            "—"}
                         </TableCell>
                         <TableCell className="font-mono text-xs">
                           {formatAddress(conn.local.ip, conn.local.port)}

@@ -11,7 +11,6 @@ import (
 )
 
 const (
-	maxProcessEntries    = 100
 	maxConnectionEntries = 200
 	maxPathLength        = 256
 )
@@ -95,10 +94,6 @@ func collectProcessMetrics() []map[string]interface{} {
 		}
 		return leftCPU > rightCPU
 	})
-
-	if len(results) > maxProcessEntries {
-		results = results[:maxProcessEntries]
-	}
 
 	return results
 }

@@ -1,30 +1,55 @@
 # System Design
 
-This document describes the current system design, scale expectations based on code defaults,
-operational cost drivers, and scaling options.
+This document describes the current system design, scale expectations based on code defaults, operational cost drivers, and scaling options.
 
-## Current Architecture
+## Current architecture
 
 - Frontend: Next.js dashboard for authentication, device inventory, live metrics, detailed snapshots, and commands.
 - Backend: Spring Boot REST API + STOMP WebSocket broker with JWT auth and rate limiting.
 - Database: PostgreSQL storing companies, devices, metrics, and detailed snapshots.
 - Agent: Go service that registers devices, streams metrics, collects detailed snapshots, and executes remote commands.
 
-High-level flow:
+```mermaid
+flowchart LR
+	UI[Dashboard UI] -->|HTTPS JSON| API[REST API]
+	UI <--> |STOMP /ws| WS[WebSocket Broker]
+	Agent[Monitor Agent] -->|REST ingest| API
+	Agent <--> |STOMP /ws| WS
+	API --> DB[(PostgreSQL / TimescaleDB)]
+	WS --> DB
+```
 
-- Users authenticate and access the dashboard.
-- Agents register with API tokens and stream metrics via STOMP.
-- Backend persists metrics and broadcasts live updates to UI subscribers.
-- Detailed snapshots are sent in batches and delivered to the UI.
-- Commands are routed from UI to agents over STOMP topics.
+## Runtime flows
 
-## Technologies Used
+```mermaid
+sequenceDiagram
+	autonumber
+	participant UI as Dashboard UI
+	participant API as REST API
+	participant WS as WebSocket
+	participant Agent as Monitor Agent
+
+	UI->>API: POST /auth/login
+	API-->>UI: JWT
+	Agent->>API: POST /agent/register
+	API-->>Agent: deviceId
+	Agent->>WS: CONNECT (x-agent-token)
+	UI->>WS: CONNECT (Authorization: Bearer JWT)
+	Agent->>WS: SEND /app/agent/metrics-batch
+	WS-->>UI: /topic/device/{deviceId}
+	UI->>WS: SEND /app/command/{deviceId}
+	WS-->>Agent: /topic/agent/{deviceId}
+	Agent->>WS: SEND /app/command-result
+	WS-->>UI: /topic/command-result/{deviceId}
+```
+
+## Technologies used
 
 - Backend: Java 21, Spring Boot, STOMP/WebSocket, JWT, PostgreSQL
 - Frontend: Next.js, React, Tailwind CSS, shadcn/ui
 - Agent: Go, gopsutil, gorilla/websocket, kardianos/service
 
-## Current Scale Expectations (Based on Defaults)
+## Current scale expectations (based on defaults)
 
 These are conservative, code-based expectations for a single backend instance:
 
@@ -40,7 +65,13 @@ A reasonable baseline for a single-node deployment:
 
 These values are estimates; validate with load tests.
 
-## Cost Drivers
+## Storage and retention
+
+- On startup, the backend attempts to enable TimescaleDB hypertables and retention policies.
+- Defaults: metrics 30 days, detailed metrics 7 days.
+- If TimescaleDB is not available, a daily cleanup job deletes old rows.
+
+## Cost drivers
 
 - Database storage and IOPS for metrics and detailed snapshots.
 - WebSocket connection count and fan-out on the backend.
@@ -49,10 +80,10 @@ These values are estimates; validate with load tests.
 Practical cost controls:
 
 - Reduce detailed snapshot frequency or payload size.
-- Retention policies for metrics and snapshots.
+- Tune retention policies for metrics and snapshots.
 - Compression at the WebSocket or proxy layer.
 
-## Scaling Strategy (Current Stack)
+## Scaling strategy (current stack)
 
 ### Backend
 
@@ -77,16 +108,14 @@ Practical cost controls:
 - Use pagination or windowing for large device lists.
 - Cache metrics and details in the API layer if needed.
 
-## Operational Scaling Checklist
+## Operational scaling checklist
 
 - Add health checks, liveness probes, and autoscaling rules.
 - Centralize logging and metrics for backend and agents.
 - Implement retention policies (TTL) for metrics and details.
 - Add request tracing for command and snapshot flows.
 
-## Potential Improvements (Optional)
-
-These are optional, non-breaking ideas to improve scale or reliability.
+## Potential improvements (optional)
 
 - Replace in-memory rate limiter with Redis-based limiter.
 - Use Kafka or NATS for metrics ingestion.
@@ -94,7 +123,7 @@ These are optional, non-breaking ideas to improve scale or reliability.
 - Add TimescaleDB or ClickHouse for metrics storage.
 - Add S3-compatible storage for large log snapshots.
 
-## If Changing Languages or Infra (Optional)
+## If changing languages or infra (optional)
 
 - Backend: Go or Node.js with a dedicated WS gateway.
 - DB: TimescaleDB for time-series data or ClickHouse for analytics.
