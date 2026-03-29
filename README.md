@@ -201,3 +201,16 @@ MONITOR_AGENT_CONFIG=/custom/path/config.json
 ## Screenshots
 
 ![Offline-img](public/image.png)
+
+
+---
+## AI Docs
+https://deepwiki.com/pratham15541/monitor-agent
+
+
+
+
+
+
+
+
