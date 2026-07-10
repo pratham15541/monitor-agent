@@ -5,10 +5,13 @@ import com.monitor.dto.RegisterRequest;
 import com.monitor.entity.Company;
 import com.monitor.repository.CompanyRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 @Service
@@ -20,6 +23,9 @@ public class AuthService {
     private final BCryptPasswordEncoder passwordEncoder;
 
     public Company register(RegisterRequest request) {
+        if (companyRepository.findByEmail(request.getEmail()).isPresent()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already registered");
+        }
 
         String apiToken = UUID.randomUUID().toString();
 
@@ -28,7 +34,7 @@ public class AuthService {
                 .email(request.getEmail())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .apiToken(apiToken)
-                .createdAt(LocalDateTime.now())
+                .createdAt(Instant.now())
                 .build();
 
         return companyRepository.save(company);
@@ -37,10 +43,10 @@ public class AuthService {
     public String login(LoginRequest request) {
 
         Company company = companyRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new RuntimeException("Invalid credentials"));
+                .orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
 
         if (!passwordEncoder.matches(request.getPassword(), company.getPasswordHash())) {
-            throw new RuntimeException("Invalid credentials");
+            throw new BadCredentialsException("Invalid credentials");
         }
 
         return jwtService.generateToken(company.getId());

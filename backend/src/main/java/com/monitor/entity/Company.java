@@ -2,7 +2,7 @@ package com.monitor.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 @Entity
@@ -27,5 +27,5 @@ public class Company {
     @Column(unique = true)
     private String apiToken;
 
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 }

@@ -8,7 +8,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 
 @Component
@@ -29,7 +29,7 @@ public class DeviceStatusScheduler {
             if (device.getLastSeenAt() == null)
                 continue;
 
-            boolean shouldBeOffline = device.getLastSeenAt().isBefore(LocalDateTime.now().minusSeconds(30));
+            boolean shouldBeOffline = device.getLastSeenAt().isBefore(Instant.now().minusSeconds(30));
 
             if (shouldBeOffline && device.getStatus() != DeviceStatus.OFFLINE) {
 

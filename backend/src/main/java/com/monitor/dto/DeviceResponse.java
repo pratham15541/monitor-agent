@@ -4,7 +4,7 @@ import com.monitor.entity.DeviceStatus;
 import lombok.Builder;
 import lombok.Data;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 @Data
@@ -15,5 +15,5 @@ public class DeviceResponse {
     private String ipAddress;
     private String os;
     private DeviceStatus status;
-    private LocalDateTime lastSeenAt;
+    private Instant lastSeenAt;
 }

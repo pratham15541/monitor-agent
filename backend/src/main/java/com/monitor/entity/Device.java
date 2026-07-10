@@ -3,7 +3,7 @@ package com.monitor.entity;
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 @Entity
@@ -25,8 +25,8 @@ public class Device {
     @Enumerated(EnumType.STRING)
     private DeviceStatus status;
 
-    private LocalDateTime lastSeenAt;
-    private LocalDateTime createdAt;
+    private Instant lastSeenAt;
+    private Instant createdAt;
 
     @ManyToOne
     @JoinColumn(name = "company_id")

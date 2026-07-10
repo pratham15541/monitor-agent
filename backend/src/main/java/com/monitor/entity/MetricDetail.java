@@ -3,7 +3,7 @@ package com.monitor.entity;
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 @Entity
 @Getter
@@ -21,7 +21,7 @@ public class MetricDetail {
     @Column(columnDefinition = "TEXT")
     private String detailsJson;
 
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "device_id", nullable = false)

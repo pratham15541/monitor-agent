@@ -20,7 +20,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -37,6 +37,7 @@ public class AgentService {
         private final SimpMessagingTemplate messagingTemplate;
 
         public Device registerDevice(AgentRegisterRequest request) {
+                Instant now = Instant.now();
 
                 Company company = companyRepository.findByApiToken(request.getToken())
                                 .orElseThrow(() -> new RuntimeException("Invalid token"));
@@ -49,16 +50,17 @@ public class AgentService {
                                                                 .ipAddress(request.getIpAddress())
                                                                 .os(request.getOs())
                                                                 .company(company)
-                                                                .createdAt(LocalDateTime.now())
+                                                                .createdAt(now)
                                                                 .build());
 
-                device.setLastSeenAt(LocalDateTime.now());
+                device.setLastSeenAt(now);
                 device.setStatus(DeviceStatus.ONLINE);
 
                 return deviceRepository.save(device);
         }
 
         public void saveMetric(MetricRequest request) {
+                Instant now = Instant.now();
 
                 Device device = deviceRepository.findById(request.getDeviceId())
                                 .orElseThrow(() -> new RuntimeException("Device not found"));
@@ -70,12 +72,12 @@ public class AgentService {
                                 .diskUsage(request.getDiskUsage())
                                 .networkIn(request.getNetworkIn())
                                 .networkOut(request.getNetworkOut())
-                                .createdAt(LocalDateTime.now())
+                                .createdAt(now)
                                 .build();
 
                 metricRepository.save(metric);
 
-                device.setLastSeenAt(LocalDateTime.now());
+                device.setLastSeenAt(now);
                 if (device.getStatus() != DeviceStatus.ONLINE) {
                         device.setStatus(DeviceStatus.ONLINE);
 
@@ -105,15 +107,15 @@ public class AgentService {
                 Device device = deviceRepository.findById(deviceId)
                                 .orElseThrow(() -> new RuntimeException("Device not found"));
 
-                List<Metric> metrics = buildMetrics(device, requests);
+                Instant now = Instant.now();
+                List<Metric> metrics = buildMetrics(device, requests, now);
                 if (metrics.isEmpty()) {
                         return;
                 }
 
                 metricRepository.saveAll(metrics);
 
-                LocalDateTime now = metrics.get(metrics.size() - 1).getCreatedAt();
-                device.setLastSeenAt(now);
+                device.setLastSeenAt(metrics.get(metrics.size() - 1).getCreatedAt());
                 if (device.getStatus() != DeviceStatus.ONLINE) {
                         device.setStatus(DeviceStatus.ONLINE);
 
@@ -166,6 +168,7 @@ public class AgentService {
 
         @Transactional
         public void saveMetricDetail(MetricDetailRequest request) {
+                Instant now = Instant.now();
 
                 Device device = deviceRepository.findById(request.getDeviceId())
                                 .orElseThrow(() -> new RuntimeException("Device not found"));
@@ -182,7 +185,7 @@ public class AgentService {
                 MetricDetail detail = MetricDetail.builder()
                                 .device(device)
                                 .detailsJson(detailsJson)
-                                .createdAt(LocalDateTime.now())
+                                .createdAt(now)
                                 .build();
 
                 MetricDetail saved = metricDetailRepository.save(detail);
@@ -224,7 +227,7 @@ public class AgentService {
                 Device device = deviceRepository.findById(deviceId)
                                 .orElseThrow(() -> new RuntimeException("Device not found"));
 
-                List<MetricDetail> details = buildMetricDetails(device, requests);
+                List<MetricDetail> details = buildMetricDetails(device, requests, Instant.now());
                 if (details.isEmpty()) {
                         return;
                 }
@@ -272,7 +275,7 @@ public class AgentService {
                                 .orElseThrow(() -> new RuntimeException("Invalid agent token"));
         }
 
-        private List<Metric> buildMetrics(Device device, List<MetricRequest> requests) {
+        private List<Metric> buildMetrics(Device device, List<MetricRequest> requests, Instant createdAt) {
                 List<Metric> metrics = new ArrayList<>(requests.size());
 
                 for (MetricRequest request : requests) {
@@ -290,14 +293,15 @@ public class AgentService {
                                         .diskUsage(request.getDiskUsage())
                                         .networkIn(request.getNetworkIn())
                                         .networkOut(request.getNetworkOut())
-                                        .createdAt(LocalDateTime.now())
+                                        .createdAt(createdAt)
                                         .build());
                 }
 
                 return metrics;
         }
 
-        private List<MetricDetail> buildMetricDetails(Device device, List<MetricDetailRequest> requests) {
+        private List<MetricDetail> buildMetricDetails(Device device, List<MetricDetailRequest> requests,
+                        Instant createdAt) {
                 List<MetricDetail> details = new ArrayList<>(requests.size());
 
                 for (MetricDetailRequest request : requests) {
@@ -320,7 +324,7 @@ public class AgentService {
                         details.add(MetricDetail.builder()
                                         .device(device)
                                         .detailsJson(detailsJson)
-                                        .createdAt(LocalDateTime.now())
+                                        .createdAt(createdAt)
                                         .build());
                 }
 

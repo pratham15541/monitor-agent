@@ -32,8 +32,12 @@ public class MetricsStorageService {
     public void initializeStorage() {
         try {
             jdbcTemplate.execute("CREATE EXTENSION IF NOT EXISTS timescaledb");
-            jdbcTemplate.execute("SELECT create_hypertable('metric', 'created_at', if_not_exists => TRUE)");
-            jdbcTemplate.execute("SELECT create_hypertable('metric_detail', 'created_at', if_not_exists => TRUE)");
+            normalizeTimestampColumns();
+            prepareMetricTablesForHypertables();
+            jdbcTemplate.execute("SELECT create_hypertable('metric', 'created_at', if_not_exists => TRUE, migrate_data => TRUE)");
+            jdbcTemplate.execute(
+                    "SELECT create_hypertable('metric_detail', 'created_at', if_not_exists => TRUE, migrate_data => TRUE)");
+            createMetricIndexes();
             jdbcTemplate.execute(
                     "SELECT add_retention_policy('metric', INTERVAL '" + metricRetentionDays
                             + " days', if_not_exists => TRUE)");
@@ -46,6 +50,63 @@ public class MetricsStorageService {
             timescaleEnabled = false;
             logger.warn("TimescaleDB not available, falling back to scheduled deletes", ex);
         }
+    }
+
+    private void normalizeTimestampColumns() {
+        alterTimestampColumn("company", "created_at");
+        alterTimestampColumn("device", "created_at");
+        alterTimestampColumn("device", "last_seen_at");
+        alterTimestampColumn("metric", "created_at");
+        alterTimestampColumn("metric_detail", "created_at");
+    }
+
+    private void alterTimestampColumn(String tableName, String columnName) {
+        jdbcTemplate.execute("""
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                          AND table_name = '%s'
+                          AND column_name = '%s'
+                          AND data_type = 'timestamp without time zone'
+                    ) THEN
+                        ALTER TABLE %s
+                        ALTER COLUMN %s TYPE TIMESTAMPTZ
+                        USING %s AT TIME ZONE 'UTC';
+                    END IF;
+                END $$;
+                """.formatted(tableName, columnName, tableName, columnName, columnName));
+    }
+
+    private void prepareMetricTablesForHypertables() {
+        dropPrimaryKeyIfExists("metric");
+        dropPrimaryKeyIfExists("metric_detail");
+    }
+
+    private void dropPrimaryKeyIfExists(String tableName) {
+        jdbcTemplate.execute("""
+                DO $$
+                DECLARE
+                    constraint_name text;
+                BEGIN
+                    SELECT conname INTO constraint_name
+                    FROM pg_constraint
+                    WHERE conrelid = '%s'::regclass
+                      AND contype = 'p';
+
+                    IF constraint_name IS NOT NULL THEN
+                        EXECUTE format('ALTER TABLE %%I DROP CONSTRAINT %%I', '%s', constraint_name);
+                    END IF;
+                END $$;
+                """.formatted(tableName, tableName));
+    }
+
+    private void createMetricIndexes() {
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_metric_device_created_at ON metric (device_id, created_at DESC)");
+        jdbcTemplate.execute(
+                "CREATE INDEX IF NOT EXISTS idx_metric_detail_device_created_at ON metric_detail (device_id, created_at DESC)");
     }
 
     @Scheduled(cron = "0 30 2 * * *")

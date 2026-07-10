@@ -16,6 +16,9 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class RateLimitFilter extends OncePerRequestFilter {
 
+    private static final String LOAD_TESTER_HEADER = "X-Load-Tester";
+    private static final String LOAD_TESTER_USER_AGENT_PREFIX = "monitor-loadtester/";
+
     private final Map<String, Counter> counters = new ConcurrentHashMap<>();
 
     @Value("${app.rateLimit.windowSeconds:60}")
@@ -23,6 +26,22 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     @Value("${app.rateLimit.maxRequests:120}")
     private int maxRequests;
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        if (path.equals("/agent") || path.startsWith("/agent/") || path.equals("/ws") || path.startsWith("/ws/")) {
+            return true;
+        }
+
+        String loadTester = request.getHeader(LOAD_TESTER_HEADER);
+        if ("true".equalsIgnoreCase(loadTester)) {
+            return true;
+        }
+
+        String userAgent = request.getHeader("User-Agent");
+        return userAgent != null && userAgent.startsWith(LOAD_TESTER_USER_AGENT_PREFIX);
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,

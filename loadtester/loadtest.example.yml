@@ -1,0 +1,29 @@
+backend_url: http://localhost:8080
+duration: 20m
+ramp_up: 6m
+heartbeat_interval: 30s
+telemetry_interval: 5s
+command_interval: 30s
+chaos_interval: 1m
+random_disconnect_percent: 5
+remote_commands: true
+report_dir: reports
+max_concurrent_registrations: 50
+max_concurrent_agents: 500
+command_sample_size: 10
+backend_metrics_interval: 15s
+request_timeout: 15s
+
+companies:
+  - name: Company A
+    admin_email: companyA@test.local
+    password: Test@123
+    systems: 50
+  - name: Company B
+    admin_email: companyB@test.local
+    password: Test@123
+    systems: 100
+  - name: Company C
+    admin_email: companyC@test.local
+    password: Test@123
+    systems: 350
