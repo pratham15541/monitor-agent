@@ -26,15 +26,15 @@ type Profile struct {
 }
 
 type Generator struct {
-	rng      *rand.Rand
-	profile  Profile
-	cpu      float64
-	memory   float64
-	disk     float64
-	netIn    float64
-	netOut   float64
-	temp     float64
-	uptime   float64
+	rng     *rand.Rand
+	profile Profile
+	cpu     float64
+	memory  float64
+	disk    float64
+	netIn   float64
+	netOut  float64
+	temp    float64
+	uptime  float64
 }
 
 func NewGenerator(seed int64, profile Profile) *Generator {
@@ -75,22 +75,22 @@ func (g *Generator) NextDetail(deviceID string) api.MetricDetailRequest {
 	processes := make([]map[string]any, 0, 8)
 	for index := 0; index < 5+g.rng.Intn(7); index++ {
 		processes = append(processes, map[string]any{
-			"pid":              1000 + g.rng.Intn(60000),
-			"name":             fmt.Sprintf("proc-%03d", index+1),
-			"exe":              "/usr/bin/proc",
-			"cmdline":          fmt.Sprintf("/usr/bin/proc --worker=%d", index+1),
-			"username":         "monitor",
-			"status":           []string{"running", "sleeping", "idle"}[index%3],
-			"ppid":             1 + g.rng.Intn(5000),
-			"createTime":       collectedAt.Add(-time.Duration(5+g.rng.Intn(1200)) * time.Second).Format(time.RFC3339),
-			"isRunning":        true,
-			"threads":          1 + g.rng.Intn(16),
-			"cpuPercent":       round2(math.Abs(noise(g.rng, 6))),
-			"memoryRssBytes":   int64(1024 * 1024 * (32 + g.rng.Intn(2048))),
-			"memoryVmsBytes":   int64(1024 * 1024 * (64 + g.rng.Intn(4096))),
-			"memoryPercent":    round2(1 + g.rng.Float64()*12),
-			"ioReadBytes":      int64(g.rng.Intn(5_000_000)),
-			"ioWriteBytes":     int64(g.rng.Intn(5_000_000)),
+			"pid":            1000 + g.rng.Intn(60000),
+			"name":           fmt.Sprintf("proc-%03d", index+1),
+			"exe":            "/usr/bin/proc",
+			"cmdline":        fmt.Sprintf("/usr/bin/proc --worker=%d", index+1),
+			"username":       "monitor",
+			"status":         []string{[]string{"running", "sleeping", "idle"}[index%3]},
+			"ppid":           1 + g.rng.Intn(5000),
+			"createTime":     collectedAt.Add(-time.Duration(5+g.rng.Intn(1200)) * time.Second).Format(time.RFC3339),
+			"isRunning":      true,
+			"threads":        1 + g.rng.Intn(16),
+			"cpuPercent":     round2(math.Abs(noise(g.rng, 6))),
+			"memoryRssBytes": int64(1024 * 1024 * (32 + g.rng.Intn(2048))),
+			"memoryVmsBytes": int64(1024 * 1024 * (64 + g.rng.Intn(4096))),
+			"memoryPercent":  round2(1 + g.rng.Float64()*12),
+			"ioReadBytes":    int64(g.rng.Intn(5_000_000)),
+			"ioWriteBytes":   int64(g.rng.Intn(5_000_000)),
 		})
 	}
 
@@ -98,11 +98,17 @@ func (g *Generator) NextDetail(deviceID string) api.MetricDetailRequest {
 	for index := 0; index < g.rng.Intn(4); index++ {
 		connections = append(connections, map[string]any{
 			"pid":    1000 + g.rng.Intn(60000),
-			"family": []string{"ipv4", "ipv6"}[index%2],
-			"type":   []string{"tcp", "udp"}[index%2],
+			"family": []int{2, 10}[index%2],
+			"type":   []int{1, 2}[index%2],
 			"status": []string{"ESTABLISHED", "TIME_WAIT", "CLOSE_WAIT"}[index%3],
-			"local":  fmt.Sprintf("%s:%d", g.profile.IPAddress, 10000+g.rng.Intn(40000)),
-			"remote": fmt.Sprintf("172.16.%d.%d:%d", g.rng.Intn(255), g.rng.Intn(255), 1000+g.rng.Intn(50000)),
+			"local": map[string]any{
+				"ip":   g.profile.IPAddress,
+				"port": 10000 + g.rng.Intn(40000),
+			},
+			"remote": map[string]any{
+				"ip":   fmt.Sprintf("172.16.%d.%d", g.rng.Intn(255), g.rng.Intn(255)),
+				"port": 1000 + g.rng.Intn(50000),
+			},
 		})
 	}
 
@@ -126,28 +132,31 @@ func (g *Generator) NextDetail(deviceID string) api.MetricDetailRequest {
 		"swapUsed":     int64(256 * 1024 * 1024),
 	}
 
-	services := []map[string]any{
-		{"name": "monitor-agent", "status": "running"},
-		{"name": "postgres", "status": "running"},
-		{"name": "dashboard", "status": "running"},
+	services := map[string]any{
+		"source": "simulated",
+		"output": strings.Join([]string{
+			"monitor-agent.service loaded active running Monitor Agent",
+			"postgresql.service loaded active running PostgreSQL database server",
+			"dashboard.service loaded active running Monitor Dashboard",
+		}, "\n"),
 	}
 
 	logs := map[string]any{
-		"agent": []string{
+		"agent": strings.Join([]string{
 			fmt.Sprintf("[%s] heartbeat ok", collectedAt.Format(time.RFC3339)),
 			fmt.Sprintf("[%s] telemetry flushed", collectedAt.Add(-5*time.Second).Format(time.RFC3339)),
-		},
-		"system": []string{fmt.Sprintf("%s system log tail", g.profile.OS)},
+		}, "\n"),
+		"system": fmt.Sprintf("%s system log tail", g.profile.OS),
 	}
 
 	details := map[string]any{
 		"collectedAt": collectedAt.Format(time.RFC3339),
-		"processes":    processes,
-		"connections":  connections,
-		"memory":       memory,
-		"services":     services,
-		"logs":         logs,
-		"os":           g.profile.OS,
+		"processes":   processes,
+		"connections": connections,
+		"memory":      memory,
+		"services":    services,
+		"logs":        logs,
+		"os":          g.profile.OS,
 	}
 
 	return api.MetricDetailRequest{DeviceID: deviceID, Details: details}
@@ -170,12 +179,12 @@ func (g *Generator) ExecuteCommand(deviceID string, request api.CommandRequest) 
 		result.Output = fmt.Sprintf("simulated service action: %s", request.Payload)
 	case "diagnostics":
 		payload, _ := json.Marshal(map[string]any{
-			"hostname":     g.profile.Hostname,
-			"os":           g.profile.OS,
-			"cpu":          g.profile.CPU,
-			"memory":       g.profile.RAM,
-			"disk":         g.profile.Disk,
-			"architecture": g.profile.Architecture,
+			"hostname":      g.profile.Hostname,
+			"os":            g.profile.OS,
+			"cpu":           g.profile.CPU,
+			"memory":        g.profile.RAM,
+			"disk":          g.profile.Disk,
+			"architecture":  g.profile.Architecture,
 			"uptimeSeconds": int(g.uptime),
 		})
 		result.Output = string(payload)

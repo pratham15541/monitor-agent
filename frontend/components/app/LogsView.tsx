@@ -9,10 +9,27 @@ type Props = {
   logs: LogsSnapshot;
 };
 
+function formatLog(value: unknown) {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) =>
+        typeof item === "string" ? item : JSON.stringify(item, null, 2),
+      )
+      .join("\n");
+  }
+  if (value == null) {
+    return "";
+  }
+  return JSON.stringify(value, null, 2);
+}
+
 export function LogsView({ logs }: Props) {
   const [activeTab, setActiveTab] = useState<"agent" | "system">("agent");
 
-  const activeLog = activeTab === "agent" ? logs.agent : logs.system;
+  const activeLog = formatLog(activeTab === "agent" ? logs.agent : logs.system);
   const lines = activeLog ? activeLog.split("\n").length : 0;
 
   return (
