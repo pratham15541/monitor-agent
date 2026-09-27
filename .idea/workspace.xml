@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="ALL" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="6dfe19cd-b771-4668-87f3-9ecb14e03a76" name="Changes" comment="" />
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="GOROOT" url="file://$PROJECT_DIR$/../../../linuxbrew/.linuxbrew/Cellar/go/1.26.5/libexec" />
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "associatedIndex": 4,
+  "fromUser": false
+}]]></component>
+  <component name="ProjectId" id="3Gxg3KGr3mO8ck2s72PSvtgm3DV" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.GPG_PINENTRY_CONFIGURATION_PROPOSAL": "true",
+    "RunOnceActivity.GoLinterPluginOnboardingV2": "true",
+    "RunOnceActivity.GoLinterPluginStorageMigration": "true",
+    "RunOnceActivity.GoOptimizationToolWindowEnableInLayout.v333333": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.go.analysis.ui.options.defaults": "true",
+    "RunOnceActivity.go.formatter.settings.were.checked": "true",
+    "RunOnceActivity.go.modules.go.list.on.any.changes.was.set": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "last_opened_file_path": "/home/pratham/projects/monitor-agent",
+    "node.js.detected.package.eslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm"
+  }
+}]]></component>
+  <component name="RunManager" selected="Go Build.go build loadtester/cmd/loadtester">
+    <configuration name="go build loadtester/cmd/loadtester" type="GoApplicationRunConfiguration" factoryName="Go Application" nameIsGenerated="true">
+      <module name="monitor-agent" />
+      <working_directory value="$PROJECT_DIR$/loadtester" />
+      <kind value="PACKAGE" />
+      <package value="loadtester/cmd/loadtester" />
+      <directory value="$PROJECT_DIR$" />
+      <auto_managed_config_id value="$PROJECT_DIR$/loadtester/cmd/loadtester" />
+      <method v="2" />
+    </configuration>
+    <configuration name="go build monitor-agent" type="GoApplicationRunConfiguration" factoryName="Go Application" nameIsGenerated="true">
+      <module name="monitor-agent" />
+      <working_directory value="$PROJECT_DIR$/monitor-agent" />
+      <kind value="PACKAGE" />
+      <package value="monitor-agent" />
+      <directory value="$PROJECT_DIR$" />
+      <auto_managed_config_id value="$PROJECT_DIR$/monitor-agent" />
+      <method v="2" />
+    </configuration>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-gosdk-63c95d513abe-9addb268e56c-org.jetbrains.plugins.go.sharedIndexes.bundled-GO-262.8665.336" />
+        <option value="bundled-js-predefined-d6986cc7102b-4abd2a77f808-JavaScript-GO-262.8665.336" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="6dfe19cd-b771-4668-87f3-9ecb14e03a76" name="Changes" comment="" />
+      <created>1784918433952</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1784918433952</updated>
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+</project>
