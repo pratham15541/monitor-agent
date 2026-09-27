@@ -1,136 +1,108 @@
-# System Design
+# System Design & Architecture Analysis
 
-This document describes the current system design, scale expectations based on code defaults, operational cost drivers, and scaling options.
+> **Notice**: This document has been updated following a complete source code audit. For the definitive, file-by-file forensic documentation suite, see:
+> - [System Overview](system-overview.md)
+> - [System Architecture](architecture.md)
+> - [End-to-End Execution Traces](execution-traces.md)
+> - [Go Monitor Agent](go-agent.md)
+> - [Cobra CLI Reference](cli.md)
+> - [Spring Boot Backend](spring-boot-backend.md)
+> - [Next.js Frontend](nextjs-frontend.md)
+> - [Batching & Rate Limiting](batching-and-rate-limiting.md)
+> - [Concurrency & Threading](concurrency.md)
+> - [Database & TimescaleDB](database.md)
+> - [Security & Vulnerability Audit](security.md)
+> - [API & Protocol Reference](api-reference.md)
 
-## Current architecture
+---
 
-- Frontend: Next.js dashboard for authentication, device inventory, live metrics, detailed snapshots, and commands.
-- Backend: Spring Boot REST API + STOMP WebSocket broker with JWT auth and rate limiting.
-- Database: PostgreSQL storing companies, devices, metrics, and detailed snapshots.
-- Agent: Go service that registers devices, streams metrics, collects detailed snapshots, and executes remote commands.
+## Documentation Corrections
+
+The following table records discrepancies between previously claimed behaviors in old documentation and the actual verified implementation in the current source code:
+
+| Old Claim / Assumption | Current Implementation (Verified from Code) | Required Correction |
+| :--- | :--- | :--- |
+| **Claim**: Agent sends metrics batches over REST (`Agent -->|REST ingest| API`). | Metrics batches are transmitted exclusively over **WebSocket STOMP** (`/app/agent/metrics-batch`). REST ingest is only used for device registration and 30-second detailed snapshots (`/agent/metrics-detail/batch`). | Clarify that the agent maintains dual concurrent WebSocket connections and uses REST only for registration and snapshots. |
+| **Claim**: Rate limiting protects all backend API endpoints. | `RateLimitFilter.shouldNotFilter()` explicitly **exempts** `/agent`, `/agent/*`, `/ws`, and `/ws/*`. Furthermore, requests with header `X-Load-Tester: true` or User-Agent `monitor-loadtester/*` completely bypass rate limiting. | Document that edge rate limiting only applies to `/auth/*`, `/devices/*`, and `/company/*`. |
+| **Claim**: Agent WebSocket connects to `/topic/agent/{deviceId}`. | The agent **subscribes** (`SUBSCRIBE`) to `/topic/agent/{deviceId}` to receive commands, but **publishes** (`SEND`) to `/app/command-result` and `/app/agent/metrics-batch`. | Clarify STOMP application destination prefixes (`/app`) vs broker topic prefixes (`/topic`). |
+| **Claim**: Ingested monitoring data is safe from duplication. | Metric and detail ingestion transactions are **non-idempotent**. When the backend receives a batch, it generates a new server timestamp (`Instant.now()`) for all records and executes standard SQL `INSERT`s without natural key deduplication. | Document that re-transmitted batches create duplicate rows in the database. |
+| **Claim**: Device offline detection is event-driven. | Device offline detection is driven by a scheduled polling background job (`DeviceStatusScheduler`) executing `deviceRepository.findAll()` every 30 seconds. | Document the full-table scan behavior and potential scaling bottleneck. |
+
+---
+
+## Current Architecture
 
 ```mermaid
 flowchart LR
-	UI[Dashboard UI] -->|HTTPS JSON| API[REST API]
-	UI <--> |STOMP /ws| WS[WebSocket Broker]
-	Agent[Monitor Agent] -->|REST ingest| API
-	Agent <--> |STOMP /ws| WS
-	API --> DB[(PostgreSQL / TimescaleDB)]
-	WS --> DB
+    subgraph UI[Dashboard UI - Next.js]
+        Browser[Browser Client]
+    end
+
+    subgraph Backend[Spring Boot Backend]
+        REST[REST API - /auth, /company, /devices, /agent]
+        WS[STOMP WebSocket Broker - /ws]
+        Auth[JWT Filter + WebSocketAuthInterceptor]
+        Rate[RateLimitFilter - Exempts /agent & /ws]
+        Scheduler[DeviceStatusScheduler - 30s Fixed Rate]
+        DB[(PostgreSQL / TimescaleDB)]
+    end
+
+    subgraph Agent[Monitor Agent - Go]
+        MetricsLoop[Metrics WS Loop - Adaptive 1-5s]
+        DetailLoop[Detail REST Loop - 30s Interval]
+        CmdLoop[Command WS Loop - Shell/Service Control]
+    end
+
+    Browser -->|HTTPS JSON - Bearer JWT| REST
+    Browser <-->|STOMP SockJS - /topic, /app| WS
+    REST --> Auth
+    REST --> Rate
+    REST --> DB
+    WS --> Auth
+    WS --> DB
+    Scheduler --> DB
+    Scheduler -.->|Broadcast OFFLINE| WS
+
+    MetricsLoop <-->|STOMP SEND /app/agent/metrics-batch| WS
+    CmdLoop <-->|STOMP SUB /topic/agent, SEND /app/command-result| WS
+    DetailLoop -->|HTTP POST /agent/metrics-detail/batch| REST
 ```
 
-## Runtime flows
+---
+
+## Runtime Flows
 
 ```mermaid
 sequenceDiagram
-	autonumber
-	participant UI as Dashboard UI
-	participant API as REST API
-	participant WS as WebSocket
-	participant Agent as Monitor Agent
+    autonumber
+    participant UI as Dashboard UI
+    participant API as Backend REST
+    participant WS as Backend STOMP WS
+    participant Agent as Monitor Agent
 
-	UI->>API: POST /auth/login
-	API-->>UI: JWT
-	Agent->>API: POST /agent/register
-	API-->>Agent: deviceId
-	Agent->>WS: CONNECT (x-agent-token)
-	UI->>WS: CONNECT (Authorization: Bearer JWT)
-	Agent->>WS: SEND /app/agent/metrics-batch
-	WS-->>UI: /topic/device/{deviceId}
-	UI->>WS: SEND /app/command/{deviceId}
-	WS-->>Agent: /topic/agent/{deviceId}
-	Agent->>WS: SEND /app/command-result
-	WS-->>UI: /topic/command-result/{deviceId}
+    UI->>API: POST /auth/login
+    API-->>UI: JWT (HS256)
+    Agent->>API: POST /agent/register (Body: token, hostname, ip, os)
+    API-->>Agent: deviceId (UUID)
+    Agent->>WS: CONNECT (Header: x-agent-token)
+    WS-->>Agent: CONNECTED
+    UI->>WS: CONNECT (Header: Authorization Bearer JWT)
+    WS-->>UI: CONNECTED
+    Agent->>WS: SEND /app/agent/metrics-batch (batch: 10 items or 5s)
+    WS-->>UI: MESSAGE /topic/device/{deviceId} (Latest metric broadcast)
+    UI->>WS: SEND /app/command/{deviceId} (Payload: shell/service)
+    WS-->>Agent: MESSAGE /topic/agent/{deviceId}
+    Agent->>Agent: Execute locally (powershell.exe / sh, 30s timeout)
+    Agent->>WS: SEND /app/command-result (Chunked <= 12KB)
+    WS-->>UI: MESSAGE /topic/command-result/{deviceId}
 ```
 
-## Technologies used
+---
 
-- Backend: Java 21, Spring Boot, STOMP/WebSocket, JWT, PostgreSQL
-- Frontend: Next.js, React, Tailwind CSS, shadcn/ui
-- Agent: Go, gopsutil, gorilla/websocket, kardianos/service
+## Scale Expectations & Baseline Limits (Code-Verified)
 
-## Current scale expectations (based on defaults)
-
-These are conservative, code-based expectations for a single backend instance:
-
-- Metric sampling is adaptive, with a minimum 1-5 second interval and batch size of 10.
-- Detailed snapshots are sent every 30 seconds by default.
-- Metrics are persisted and broadcast on each batch flush.
-
-A reasonable baseline for a single-node deployment:
-
-- ~500-2,000 devices per backend instance at low to moderate traffic.
-- ~5-20k metrics per minute total, depending on CPU load patterns.
-- Detailed snapshot payloads are the main bandwidth and storage driver.
-
-These values are estimates; validate with load tests.
-
-## Storage and retention
-
-- On startup, the backend attempts to enable TimescaleDB hypertables and retention policies.
-- Defaults: metrics 30 days, detailed metrics 7 days.
-- If TimescaleDB is not available, a daily cleanup job deletes old rows.
-
-## Cost drivers
-
-- Database storage and IOPS for metrics and detailed snapshots.
-- WebSocket connection count and fan-out on the backend.
-- Bandwidth for detailed snapshots, especially logs and services output.
-
-Practical cost controls:
-
-- Reduce detailed snapshot frequency or payload size.
-- Tune retention policies for metrics and snapshots.
-- Compression at the WebSocket or proxy layer.
-
-## Scaling strategy (current stack)
-
-### Backend
-
-- Add horizontal replicas behind a load balancer.
-- Use sticky sessions or a shared message broker if required for WS routing.
-- Consider external STOMP broker (RabbitMQ) for higher fan-out.
-- Move rate limiting to API gateway for centralized policy.
-
-### Database
-
-- Add indexes on deviceId and createdAt for metrics and details.
-- Partition tables by time (weekly/monthly) for retention.
-- Use read replicas for dashboard queries.
-
-### Agent
-
-- Stagger detailed metrics intervals per device to reduce burst load.
-- Keep adaptive sampling to reduce spikes at scale.
-
-### Frontend
-
-- Use pagination or windowing for large device lists.
-- Cache metrics and details in the API layer if needed.
-
-## Operational scaling checklist
-
-- Add health checks, liveness probes, and autoscaling rules.
-- Centralize logging and metrics for backend and agents.
-- Implement retention policies (TTL) for metrics and details.
-- Add request tracing for command and snapshot flows.
-
-## Potential improvements (optional)
-
-- Replace in-memory rate limiter with Redis-based limiter.
-- Use Kafka or NATS for metrics ingestion.
-- Move STOMP broker to RabbitMQ for large fan-out.
-- Add TimescaleDB or ClickHouse for metrics storage.
-- Add S3-compatible storage for large log snapshots.
-
-## If changing languages or infra (optional)
-
-- Backend: Go or Node.js with a dedicated WS gateway.
-- DB: TimescaleDB for time-series data or ClickHouse for analytics.
-- Infra: Kubernetes for autoscaling and rolling updates.
-- Agent: Add gRPC streaming for lower overhead.
-
-## Notes
-
-- These recommendations assume current code behavior and no production load testing.
-- Validate with realistic device counts and payload sizes.
+- **Metric Sampling**: Adaptive (1s if CPU > 90%, 2s if CPU > 70%, 5s default). Flushes at 10 items or 5 seconds.
+- **Detailed Snapshots**: 30-second interval via HTTP POST. Payload sizes range between 150KB and 500KB.
+- **Single-Node Baseline**:
+  - ~500–1,000 devices per single backend node.
+  - Bottlenecks: `DeviceStatusScheduler` executes `findAll()` on every tick; TimescaleDB IOPS and disk storage growth for uncompressed detail snapshots.\n

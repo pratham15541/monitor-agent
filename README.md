@@ -1,216 +1,157 @@
-# Monitor Tool
+# Monitor Agent & Fleet Management Platform
 
-Monitor Tool is a full-stack monitoring platform with live metrics, detailed system snapshots, and remote command execution. It combines a Spring Boot backend, a Next.js dashboard, and a Go agent that runs on monitored machines.
+Monitor Agent is an end-to-end multi-tenant infrastructure monitoring platform featuring live time-series telemetry streaming, deep diagnostic system snapshots, and bi-directional remote command execution. It couples a Spring Boot 4.0.2 / Java 21 backend with TimescaleDB time-series storage, a Next.js 16 (React 19) dashboard, a native Go daemon/CLI agent, and a high-concurrency simulation load tester.
 
-## What you get
+---
 
-- Company accounts with JWT auth and per-company API tokens.
-- Device inventory with status tracking and last-seen timestamps.
-- Live metrics stream (CPU, memory, disk, network) over STOMP/WebSocket.
-- Batch metrics ingestion via REST and STOMP.
-- Detailed snapshots (processes, connections, memory, services, logs).
-- Remote commands (shell, service control, diagnostics, collect-details).
-- Command results streamed back to the dashboard.
-- Offline detection and status broadcasts every 30 seconds.
-- Basic per-IP/per-path request rate limiting.
+## Technical Documentation Suite
 
-## Repository layout
+The complete code-first technical documentation and architectural reverse-engineering reference is maintained in the [`docs/`](docs/) directory:
 
-- [backend/](backend/) Spring Boot REST + STOMP WebSocket API
-- [frontend/](frontend/) Next.js dashboard
-- [monitor-agent/](monitor-agent/) Go agent service and CLI
-- [docs/](docs/) Project documentation
+| Document | Primary Focus |
+| :--- | :--- |
+| [**System Overview**](docs/system-overview.md) | High-level system architecture, subsystem inventory, and core invariants. |
+| [**System Architecture**](docs/architecture.md) | Full architectural diagrams, process models, and trust boundaries. |
+| [**Execution Traces**](docs/execution-traces.md) | **Concrete end-to-end traces** for metric collection, failures, commands, and sweeps. |
+| [**Go Monitor Agent**](docs/go-agent.md) | Internal agent engine, gopsutil collectors, adaptive loop, and STOMP client. |
+| [**Go CLI Reference**](docs/cli.md) | Comprehensive reference for Cobra CLI commands, flags, and exit codes. |
+| [**Spring Boot Backend**](docs/spring-boot-backend.md) | Controller forensics, services, security filters, and TimescaleDB initialization. |
+| [**Next.js Frontend**](docs/nextjs-frontend.md) | React 19 state, SockJS/STOMP streaming, and multi-chunk command reassembly. |
+| [**Data Flow & Lineage**](docs/data-flow.md) | End-to-end metric transformation from OS kernel counters to SVG chart rendering. |
+| [**Networking & Protocols**](docs/networking.md) | Protocols, STOMP framing, transport buffer limits, and dual WebSocket topology. |
+| [**Batching & Rate Limiting**](docs/batching-and-rate-limiting.md) | Thresholds, memory ownership, edge rate limiting, and exemption rules. |
+| [**Concurrency & Threading**](docs/concurrency.md) | Goroutines, thread pools, race condition analysis, and synchronization hazards. |
+| [**Database & TimescaleDB**](docs/database.md) | Schema ERD, hypertable partition mechanics, query patterns, and idempotency. |
+| [**API & Protocol Reference**](docs/api-reference.md) | Exhaustive REST endpoint contracts and STOMP topic/destination specifications. |
+| [**Configuration Reference**](docs/configuration.md) | Environment variables, YAML keys, agent JSON configs, and default values. |
+| [**Failure Recovery & Resilience**](docs/failure-recovery.md) | Failure matrix, crash consistency boundaries, timeouts, and backoff policies. |
+| [**Observability & Monitoring**](docs/observability.md) | Logging forensics, health checks, operational questions, and monitoring gaps. |
+| [**Security & Vulnerability Audit**](docs/security.md) | Threat modeling, BOLA vulnerability audit, and remediation guidance. |
+| [**Performance & Scalability**](docs/performance.md) | CPU/memory profiles, database write capacity, and 1 to 10,000 node modeling. |
+| [**Testing & Verification**](docs/testing.md) | Test suite inventory, gaps, and `loadtester/` simulation harness analysis. |
+| [**Operational Troubleshooting**](docs/troubleshooting.md) | Diagnostic symptom-resolution matrix and verification runbooks. |
+| [**Architecture Decision Records**](docs/architecture-decisions.md) | ADR-01 through ADR-05 reverse-engineered directly from source. |
 
-## Architecture overview
+---
+
+## Actual System Architecture
 
 ```mermaid
 flowchart LR
-  subgraph UI[Dashboard UI]
+  subgraph UI[Dashboard UI - Next.js 16]
     Browser[Browser Client]
   end
 
   subgraph Backend[Spring Boot Backend]
-    REST[REST API]
-    WS[STOMP WebSocket /ws]
-    Auth[JWT + Agent Token Auth]
-    Rate[Rate Limiter]
-    DB[(PostgreSQL / TimescaleDB)]
+    REST[REST API - /auth, /company, /devices, /agent]
+    WS[STOMP WebSocket Broker - /ws]
+    Auth[JWT Filter + WebSocketAuthInterceptor]
+    Rate[RateLimitFilter - Exempts /agent & /ws]
+    DB[(PostgreSQL 16 / TimescaleDB)]
+    Scheduler[DeviceStatusScheduler - 30s Fixed Rate]
   end
 
-  subgraph Agent[Monitor Agent]
-    Collector[System Collectors]
-    Cmd[Command Runner]
-    Service[Background Service]
+  subgraph Agent[Monitor Agent - Go]
+    MetricsLoop[Metrics WS Loop - Adaptive 1-5s]
+    DetailLoop[Detail REST Loop - 30s Interval]
+    CmdLoop[Command WS Loop - Shell/Service Control]
   end
 
-  Browser -->|HTTPS JSON| REST
-  Browser <--> |STOMP| WS
+  Browser -->|HTTPS JSON - Bearer JWT| REST
+  Browser <-->|STOMP SockJS - /topic, /app| WS
   REST --> Auth
   REST --> Rate
   REST --> DB
   WS --> Auth
   WS --> DB
+  Scheduler --> DB
+  Scheduler -.->|Broadcast OFFLINE status| WS
 
-  Collector --> Service
-  Cmd --> Service
-  Service -->|metrics, detail batches| REST
-  Service <--> |STOMP /topic| WS
+  MetricsLoop <-->|STOMP SEND /app/agent/metrics-batch| WS
+  CmdLoop <-->|STOMP SUB /topic/agent, SEND /app/command-result| WS
+  DetailLoop -->|HTTP POST /agent/metrics-detail/batch (x-agent-token)| REST
 ```
 
-## Key flows
+---
+
+## Key Runtime Flows
 
 ```mermaid
 sequenceDiagram
   autonumber
   participant UI as Dashboard UI
   participant API as Backend REST
-  participant WS as Backend WS
+  participant WS as Backend STOMP WS
   participant Agent as Monitor Agent
 
   UI->>API: POST /auth/login
-  API-->>UI: JWT
-  Agent->>API: POST /agent/register (api token)
-  API-->>Agent: deviceId
-  Agent->>WS: CONNECT (x-agent-token)
-  UI->>WS: CONNECT (Authorization: Bearer JWT)
-  Agent->>WS: SEND /app/agent/metrics-batch
-  WS-->>UI: /topic/device/{deviceId}
-  UI->>WS: SEND /app/command/{deviceId}
-  WS-->>Agent: /topic/agent/{deviceId}
-  Agent->>WS: SEND /app/command-result
-  WS-->>UI: /topic/command-result/{deviceId}
+  API-->>UI: JWT (HS256)
+  Agent->>API: POST /agent/register (Body: token, hostname, ip, os)
+  API-->>Agent: deviceId (UUID)
+  Agent->>WS: CONNECT (Header: x-agent-token)
+  WS-->>Agent: CONNECTED
+  UI->>WS: CONNECT (Header: Authorization Bearer JWT)
+  WS-->>UI: CONNECTED
+  Agent->>WS: SEND /app/agent/metrics-batch (batch: 10 items or 5s)
+  WS-->>UI: MESSAGE /topic/device/{deviceId} (Latest metric broadcast)
+  UI->>WS: SEND /app/command/{deviceId} (Payload: shell/service)
+  WS-->>Agent: MESSAGE /topic/agent/{deviceId}
+  Agent->>Agent: Execute locally (powershell.exe / sh, 30s timeout)
+  Agent->>WS: SEND /app/command-result (Chunked <= 12KB)
+  WS-->>UI: MESSAGE /topic/command-result/{deviceId}
 ```
 
-## Data model (current)
+---
 
-| Entity       | Key fields                                                                        | Notes                          |
-| ------------ | --------------------------------------------------------------------------------- | ------------------------------ |
-| Company      | id, name, email, passwordHash, apiToken, createdAt                                | Auth and scoping boundary.     |
-| Device       | id, hostname, ipAddress, os, status, lastSeenAt, createdAt, company_id            | Updated on every metric batch. |
-| Metric       | id, device_id, cpuUsage, memoryUsage, diskUsage, networkIn, networkOut, createdAt | Latest 50 shown in UI.         |
-| MetricDetail | id, device_id, detailsJson, createdAt                                             | Latest 20 shown in UI.         |
+## Repository Layout
 
-## REST + WebSocket surface (summary)
+- [`backend/`](backend/) Spring Boot 4.0.2 REST + STOMP WebSocket API & TimescaleDB storage.
+- [`frontend/`](frontend/) Next.js 16.1.6 dashboard with React 19 & Tailwind CSS v4.
+- [`monitor-agent/`](monitor-agent/) Go monitoring agent daemon and Cobra CLI suite.
+- [`loadtester/`](loadtester/) High-concurrency agent simulator and benchmarking suite.
+- [`scripts/`](scripts/) Build, cross-compilation, version bump, and installation scripts.
+- [`docs/`](docs/) Definitive technical documentation suite.
 
-REST endpoints (all JSON):
+---
 
-- POST `/auth/register`
-- POST `/auth/login`
-- GET `/company/me`
-- GET `/devices`
-- GET `/devices/{deviceId}/metrics`
-- GET `/devices/{deviceId}/metrics-detail`
-- POST `/agent/register`
-- POST `/agent/metrics`
-- POST `/agent/metrics/batch`
-- POST `/agent/metrics-detail`
-- POST `/agent/metrics-detail/batch`
+## Quick Start
 
-WebSocket (STOMP) endpoint: `/ws`
-
-- Topics: `/topic/device/{deviceId}`, `/topic/device-status/{deviceId}`, `/topic/device-detail/{deviceId}`, `/topic/command-result/{deviceId}`, `/topic/agent/{deviceId}`
-- App destinations: `/app/agent/metrics`, `/app/agent/metrics-batch`, `/app/agent/metrics-detail`, `/app/agent/metrics-detail-batch`, `/app/command/{deviceId}`, `/app/command-result`
-
-Authentication:
-
-- UI uses `Authorization: Bearer <jwt>` for REST and STOMP CONNECT.
-- Agent uses `x-agent-token: <api token>` for REST and STOMP CONNECT.
-
-## Quick start
-
-### 1) Backend
-
-Docker (recommended for TimescaleDB):
+### 1) Backend (Docker Compose with TimescaleDB)
 
 ```bash
 cd backend
 docker compose up --build
 ```
-
-Local JVM:
-
+Or locally via Maven:
 ```bash
 cd backend
-mvn spring-boot:run
+./mvnw spring-boot:run
 ```
 
-Windows shortcut script: see [backend/run.ps1](backend/run.ps1)
-
-### 2) Frontend
+### 2) Frontend (Next.js Dashboard)
 
 ```bash
 cd frontend
 bun install
 bun run dev
 ```
+Dashboard will be accessible at `http://localhost:3000`.
 
-### 3) Agent
+### 3) Monitor Agent (Go)
 
 ```bash
 cd monitor-agent
-go build -o monitor-agent ./
-./monitor-agent install --token YOUR_TOKEN --server http://localhost:8080
+go build -o monitor-agent .
+./monitor-agent install --token <YOUR_COMPANY_TOKEN> --server http://localhost:8080
 ./monitor-agent start
 ```
-
-## Configuration
-
-Backend environment variables (see [backend/src/main/resources/application.yml](backend/src/main/resources/application.yml)):
-
-```env
-JWT_SECRET=...
-JWT_ISSUER=monitor-tool
-JWT_EXP_MINUTES=60
-CORS_ALLOWED_ORIGINS=http://localhost:3000
-RATE_LIMIT_WINDOW=60
-RATE_LIMIT_MAX=120
-METRIC_RETENTION_DAYS=30
-METRIC_DETAIL_RETENTION_DAYS=7
+Or run directly in foreground for debugging:
+```bash
+./monitor-agent run
 ```
 
-Frontend environment variables:
-
-```env
-NEXT_PUBLIC_API_BASE=http://localhost:8080
-NEXT_PUBLIC_WS_URL=http://localhost:8080/ws
-```
-
-Agent environment variables:
-
-```env
-MONITOR_AGENT_CONFIG=/custom/path/config.json
-```
-
-## Retention and background jobs
-
-- Offline detection runs every 30 seconds.
-- TimescaleDB hypertables and retention policies are enabled when the extension is available; otherwise a daily cleanup job runs at 02:30.
-- Default retention: metrics 30 days, detailed metrics 7 days.
-
-## Documentation
-
-- [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md)
-- [docs/SECURITY.md](docs/SECURITY.md)
-- [docs/VERSION_MANAGEMENT.md](docs/VERSION_MANAGEMENT.md)
-
-## Reports
-
-- [public/p1.pdf](public/p1.pdf)
-- [public/p2.pdf](public/p2.pdf)
+---
 
 ## Screenshots
 
-![Offline-img](public/image.png)
-
-
----
-## AI Docs
-https://deepwiki.com/pratham15541/monitor-agent
-
-
-
-
-
-
-
-
+![Offline-img](public/image.png)\n
